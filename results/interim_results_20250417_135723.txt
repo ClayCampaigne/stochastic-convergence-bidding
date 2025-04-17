@@ -1,0 +1,21 @@
+Price Points Analysis - Interim Results
+=====================================
+
+100 scenarios, 5 price points:
+  Revenue: $229140.12, Solve time: 0.07s, Total time: 0.13s
+
+100 scenarios, 20 price points:
+  Revenue: $247583.48, Solve time: 0.17s, Total time: 0.23s
+
+100 scenarios, unlimited price points:
+  Revenue: $252270.19, Solve time: 1.11s, Total time: 1.17s
+
+200 scenarios, 5 price points:
+  Revenue: $210144.93, Solve time: 0.11s, Total time: 0.23s
+
+200 scenarios, 20 price points:
+  Revenue: $208472.08, Solve time: 0.37s, Total time: 0.48s
+
+200 scenarios, unlimited price points:
+  Revenue: $223310.06, Solve time: 8.17s, Total time: 8.28s
+

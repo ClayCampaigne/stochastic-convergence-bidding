@@ -15,9 +15,9 @@ np.random.seed(1)
 os.makedirs("./results", exist_ok=True)
 
 # Analysis parameters
-# Full analysis parameters
-sample_sizes = [100, 500, 1000]  # Different scenario counts to test
-max_bid_prices_list = [5, 10, 20, 50, 100, None]  # Different max bid prices to test (None = unlimited)
+# Final analysis parameters
+sample_sizes = [100, 200, 500]  # Different scenario counts to test
+max_bid_prices_list = [5, 10, 20, 50, None]  # Different max bid prices to test (None = unlimited)
 hours = list(range(24))
 
 # Create output file with timestamp
@@ -197,25 +197,39 @@ def run_bid_price_analysis():
     
     print("\nRunning analysis of price points vs. revenue...")
     
+    # Create an interim results file to save progress
+    interim_results_file = f"results/interim_results_{timestamp}.txt"
+    with open(interim_results_file, 'w') as f:
+        f.write("Price Points Analysis - Interim Results\n")
+        f.write("=====================================\n\n")
+    
     # Create figures for the analysis
     fig1 = plt.figure(figsize=(10, 6))
     
     # For each sample size
     for n_scenarios in sample_sizes:
         results[n_scenarios] = []
+        print(f"\nStarting analysis for {n_scenarios} scenarios...")
         
         # For each max bid prices setting
         for max_bid_prices in max_bid_prices_list:
             print(f"Running with {n_scenarios} scenarios and {max_bid_prices if max_bid_prices is not None else 'unlimited'} price points...")
             
+            start_time = time.time()
             # Run the optimization
             revenue, solve_time, _ = run_optimization(n_scenarios, max_bid_prices)
+            total_time = time.time() - start_time
             
             # Store the results
             results[n_scenarios].append((max_bid_prices, revenue, solve_time))
             
             price_points_str = str(max_bid_prices) if max_bid_prices is not None else "unlimited"
-            print(f"  Revenue: ${revenue:.2f}, Solve time: {solve_time:.2f}s")
+            print(f"  Revenue: ${revenue:.2f}, Solve time: {solve_time:.2f}s, Total time: {total_time:.2f}s")
+            
+            # Save interim results
+            with open(interim_results_file, 'a') as f:
+                f.write(f"{n_scenarios} scenarios, {price_points_str} price points:\n")
+                f.write(f"  Revenue: ${revenue:.2f}, Solve time: {solve_time:.2f}s, Total time: {total_time:.2f}s\n\n")
         
     # Create x values for plotting (replace None with "unlimited" for display)
     x_labels = [str(x) if x is not None else "unlimited" for x in max_bid_prices_list]
