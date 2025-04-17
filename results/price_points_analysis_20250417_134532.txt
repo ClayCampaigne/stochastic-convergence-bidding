@@ -1,0 +1,36 @@
+Price Points Analysis Results
+==========================
+
+Price Points               100 scenarios            200 scenarios
+---------------------------------------------
+5              $              229140.12$              210144.93
+10             $              245365.25$              200723.40
+20             $              247583.48$              208472.08
+unlimited      $              252270.19$              223310.06
+
+Revenue Improvement % (vs. 5 price points):
+---------------------------------------------
+Price Points               100 scenarios            200 scenarios
+---------------------------------------------
+5                             baseline               baseline
+10                                7.08%                  -4.48%
+20                                8.05%                  -0.80%
+unlimited                        10.09%                   6.26%
+
+Solve Times (seconds):
+---------------------------------------------
+Price Points               100 scenarios            200 scenarios
+---------------------------------------------
+5                                 0.07                   0.11
+10                                0.09                   0.18
+20                                0.19                   0.36
+unlimited                         1.08                   7.97
+
+Solve Time Ratio (vs. 5 price points):
+---------------------------------------------
+Price Points               100 scenarios            200 scenarios
+---------------------------------------------
+5                             baseline               baseline
+10                                1.31x                   1.57x
+20                                2.69x                   3.24x
+unlimited                        15.06x                  71.28x
