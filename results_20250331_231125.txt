@@ -1,0 +1,161 @@
+Optimization Results - 2025-03-31 23:11:25
+================================================================================
+
+
+========================================
+Running optimization for 60 scenarios...
+========================================
+
+
+Hourly Report:
+Hour  0 | Avg Wind =   59.80 MW, Avg Spread =   14.61, Std Spread =  16.22
+Hour  1 | Avg Wind =   89.69 MW, Avg Spread =   23.12, Std Spread =  19.59
+Hour  2 | Avg Wind =   95.38 MW, Avg Spread =   25.35, Std Spread =  20.32
+Hour  3 | Avg Wind =  104.27 MW, Avg Spread =   24.27, Std Spread =  18.96
+Hour  4 | Avg Wind =   99.70 MW, Avg Spread =   23.92, Std Spread =  25.84
+Hour  5 | Avg Wind =   77.34 MW, Avg Spread =   20.29, Std Spread =  19.54
+Hour  6 | Avg Wind =   54.20 MW, Avg Spread =    9.16, Std Spread =  31.91
+Hour  7 | Avg Wind =   31.03 MW, Avg Spread =   10.70, Std Spread =  25.25
+Hour  8 | Avg Wind =   20.16 MW, Avg Spread =    6.86, Std Spread =  29.17
+Hour  9 | Avg Wind =   20.05 MW, Avg Spread =    4.85, Std Spread =  45.44
+Hour 10 | Avg Wind =   31.89 MW, Avg Spread =  -73.16, Std Spread = 629.24
+Hour 11 | Avg Wind =   48.45 MW, Avg Spread =  -38.17, Std Spread = 390.24
+Hour 12 | Avg Wind =   71.84 MW, Avg Spread =   18.95, Std Spread =  14.28
+Hour 13 | Avg Wind =   95.17 MW, Avg Spread =   22.36, Std Spread =  19.75
+Hour 14 | Avg Wind =  104.34 MW, Avg Spread =   17.46, Std Spread =  17.04
+Hour 15 | Avg Wind =  102.72 MW, Avg Spread =   21.89, Std Spread =  18.32
+Hour 16 | Avg Wind =   89.14 MW, Avg Spread =   16.57, Std Spread =  17.33
+Hour 17 | Avg Wind =   63.61 MW, Avg Spread =   17.61, Std Spread =  23.85
+Hour 18 | Avg Wind =   40.16 MW, Avg Spread =  -39.83, Std Spread = 390.26
+Hour 19 | Avg Wind =   23.89 MW, Avg Spread =  -48.65, Std Spread = 460.26
+Hour 20 | Avg Wind =   16.43 MW, Avg Spread =    9.85, Std Spread =  22.67
+Hour 21 | Avg Wind =   25.74 MW, Avg Spread =    3.33, Std Spread =  32.19
+Hour 22 | Avg Wind =   40.99 MW, Avg Spread =   10.03, Std Spread =  16.55
+Hour 23 | Avg Wind =   59.86 MW, Avg Spread =   11.61, Std Spread =  22.05
+
+Optimization completed in 0.41 seconds
+Objective value: 414113.74
+
+Final bids for each hour:
+
+Hour 2:
+  Sell: DA price=$30.57/MWh, volume=3600.0 MW
+  No buy bid
+
+Hour 10:
+  No sell bid
+  Buy : DA price=$36.01/MWh, volume=3600.0 MW
+
+Summary of active hours:
+  Hour 2: Sell volume = 3600.0MW, Buy volume = 0.0MW
+  Hour 10: Sell volume = 0.0MW, Buy volume = 3600.0MW
+
+========================================
+COMPLETED: 60 scenarios
+========================================
+
+
+========================================
+Running optimization for 70 scenarios...
+========================================
+
+
+Hourly Report:
+Hour  0 | Avg Wind =   60.21 MW, Avg Spread =   13.81, Std Spread =  16.35
+Hour  1 | Avg Wind =   90.07 MW, Avg Spread =   24.06, Std Spread =  21.66
+Hour  2 | Avg Wind =   96.68 MW, Avg Spread =   25.59, Std Spread =  20.21
+Hour  3 | Avg Wind =  103.25 MW, Avg Spread =   23.40, Std Spread =  17.74
+Hour  4 | Avg Wind =   99.21 MW, Avg Spread =   23.17, Std Spread =  24.20
+Hour  5 | Avg Wind =   75.76 MW, Avg Spread =   20.89, Std Spread =  20.46
+Hour  6 | Avg Wind =   54.16 MW, Avg Spread =   10.23, Std Spread =  29.95
+Hour  7 | Avg Wind =   31.45 MW, Avg Spread =   10.96, Std Spread =  23.79
+Hour  8 | Avg Wind =   20.27 MW, Avg Spread =    7.80, Std Spread =  27.23
+Hour  9 | Avg Wind =   20.41 MW, Avg Spread =    6.19, Std Spread =  42.42
+Hour 10 | Avg Wind =   32.10 MW, Avg Spread =  -61.50, Std Spread = 583.26
+Hour 11 | Avg Wind =   49.60 MW, Avg Spread =  -31.24, Std Spread = 361.70
+Hour 12 | Avg Wind =   72.74 MW, Avg Spread =   20.20, Std Spread =  15.82
+Hour 13 | Avg Wind =   92.14 MW, Avg Spread =   21.78, Std Spread =  19.67
+Hour 14 | Avg Wind =  103.63 MW, Avg Spread =   18.10, Std Spread =  16.57
+Hour 15 | Avg Wind =  104.08 MW, Avg Spread =   22.26, Std Spread =  19.04
+Hour 16 | Avg Wind =   88.41 MW, Avg Spread =   15.77, Std Spread =  16.41
+Hour 17 | Avg Wind =   62.96 MW, Avg Spread =   17.05, Std Spread =  22.76
+Hour 18 | Avg Wind =   39.41 MW, Avg Spread =  -33.58, Std Spread = 361.79
+Hour 19 | Avg Wind =   23.05 MW, Avg Spread =  -40.46, Std Spread = 426.60
+Hour 20 | Avg Wind =   17.06 MW, Avg Spread =    6.40, Std Spread =  35.07
+Hour 21 | Avg Wind =   26.59 MW, Avg Spread =    5.10, Std Spread =  31.04
+Hour 22 | Avg Wind =   40.22 MW, Avg Spread =  -53.41, Std Spread = 534.91
+Hour 23 | Avg Wind =   60.38 MW, Avg Spread =   11.42, Std Spread =  20.87
+
+Optimization completed in 0.51 seconds
+Objective value: 374551.61
+
+Final bids for each hour:
+
+Hour 2:
+  Sell: DA price=$30.57/MWh, volume=3600.0 MW
+  No buy bid
+
+Hour 10:
+  No sell bid
+  Buy : DA price=$36.01/MWh, volume=3600.0 MW
+
+Summary of active hours:
+  Hour 2: Sell volume = 3600.0MW, Buy volume = 0.0MW
+  Hour 10: Sell volume = 0.0MW, Buy volume = 3600.0MW
+
+========================================
+COMPLETED: 70 scenarios
+========================================
+
+
+========================================
+Running optimization for 80 scenarios...
+========================================
+
+
+Hourly Report:
+Hour  0 | Avg Wind =   59.95 MW, Avg Spread =   13.67, Std Spread =  16.93
+Hour  1 | Avg Wind =   89.26 MW, Avg Spread =   23.23, Std Spread =  20.52
+Hour  2 | Avg Wind =   97.06 MW, Avg Spread =   24.28, Std Spread =  19.39
+Hour  3 | Avg Wind =  103.03 MW, Avg Spread =   22.20, Std Spread =  17.26
+Hour  4 | Avg Wind =   98.28 MW, Avg Spread =   23.29, Std Spread =  23.56
+Hour  5 | Avg Wind =   75.87 MW, Avg Spread =   20.29, Std Spread =  19.45
+Hour  6 | Avg Wind =   54.41 MW, Avg Spread =   10.89, Std Spread =  28.11
+Hour  7 | Avg Wind =   32.58 MW, Avg Spread =    9.54, Std Spread =  25.75
+Hour  8 | Avg Wind =   20.20 MW, Avg Spread =    8.06, Std Spread =  25.67
+Hour  9 | Avg Wind =   19.83 MW, Avg Spread =    6.35, Std Spread =  39.73
+Hour 10 | Avg Wind =   30.78 MW, Avg Spread =  -51.89, Std Spread = 546.20
+Hour 11 | Avg Wind =   48.25 MW, Avg Spread =  -26.56, Std Spread = 338.58
+Hour 12 | Avg Wind =   71.98 MW, Avg Spread =   19.21, Std Spread =  15.43
+Hour 13 | Avg Wind =   92.29 MW, Avg Spread =   21.38, Std Spread =  19.45
+Hour 14 | Avg Wind =  104.52 MW, Avg Spread =   18.25, Std Spread =  16.50
+Hour 15 | Avg Wind =  104.32 MW, Avg Spread =   20.98, Std Spread =  18.37
+Hour 16 | Avg Wind =   89.01 MW, Avg Spread =   16.74, Std Spread =  17.41
+Hour 17 | Avg Wind =   62.67 MW, Avg Spread =   15.86, Std Spread =  21.83
+Hour 18 | Avg Wind =   40.35 MW, Avg Spread =  -27.49, Std Spread = 338.89
+Hour 19 | Avg Wind =   22.53 MW, Avg Spread =  -34.89, Std Spread = 399.33
+Hour 20 | Avg Wind =   17.86 MW, Avg Spread =    5.61, Std Spread =  35.28
+Hour 21 | Avg Wind =   25.66 MW, Avg Spread =    5.18, Std Spread =  29.21
+Hour 22 | Avg Wind =   38.65 MW, Avg Spread =  -45.90, Std Spread = 500.78
+Hour 23 | Avg Wind =   60.73 MW, Avg Spread =   12.43, Std Spread =  21.39
+
+Optimization completed in 0.70 seconds
+Objective value: 338826.50
+
+Final bids for each hour:
+
+Hour 2:
+  Sell: DA price=$30.57/MWh, volume=3600.0 MW
+  No buy bid
+
+Hour 10:
+  No sell bid
+  Buy : DA price=$36.01/MWh, volume=3600.0 MW
+
+Summary of active hours:
+  Hour 2: Sell volume = 3600.0MW, Buy volume = 0.0MW
+  Hour 10: Sell volume = 0.0MW, Buy volume = 3600.0MW
+
+========================================
+COMPLETED: 80 scenarios
+========================================

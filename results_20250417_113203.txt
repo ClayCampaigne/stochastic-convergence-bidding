@@ -1,0 +1,9 @@
+Optimization Results - 2025-04-17 11:32:03
+================================================================================
+
+
+========================================
+Running optimization for 100 scenarios...
+========================================
+
+Missing one of the expected variables: dalmp, rtlmp, wind_power_mw.

@@ -1,0 +1,90 @@
+Optimization Results - 2025-04-17 11:46:48
+================================================================================
+
+
+========================================
+Running optimization for 100 scenarios...
+========================================
+
+
+Hourly Report:
+Hour  0 | Avg Spread =   16.30, Std Spread =  16.22
+Hour  1 | Avg Spread =   19.71, Std Spread =  17.33
+Hour  2 | Avg Spread =   21.35, Std Spread =  16.02
+Hour  3 | Avg Spread =   22.17, Std Spread =  14.67
+Hour  4 | Avg Spread =   21.49, Std Spread =  15.62
+Hour  5 | Avg Spread =   20.08, Std Spread =  13.91
+Hour  6 | Avg Spread =   15.06, Std Spread =  16.10
+Hour  7 | Avg Spread =   11.14, Std Spread =  15.94
+Hour  8 | Avg Spread =    8.35, Std Spread =  17.01
+Hour  9 | Avg Spread =   10.94, Std Spread =  15.56
+Hour 10 | Avg Spread =  -29.83, Std Spread = 180.54
+Hour 11 | Avg Spread =    9.40, Std Spread =  13.51
+Hour 12 | Avg Spread =   15.90, Std Spread =  14.62
+Hour 13 | Avg Spread =   16.99, Std Spread =  15.37
+Hour 14 | Avg Spread =   19.17, Std Spread =  14.35
+Hour 15 | Avg Spread =   30.72, Std Spread =  19.74
+Hour 16 | Avg Spread =   27.17, Std Spread =  28.95
+Hour 17 | Avg Spread =   15.82, Std Spread =  14.47
+Hour 18 | Avg Spread =  -24.63, Std Spread = 183.33
+Hour 19 | Avg Spread =    8.74, Std Spread =  15.16
+Hour 20 | Avg Spread =  -80.90, Std Spread = 318.65
+Hour 21 | Avg Spread =    6.65, Std Spread =  15.80
+Hour 22 | Avg Spread =    6.50, Std Spread =  15.68
+Hour 23 | Avg Spread =   14.58, Std Spread =  14.51
+
+Optimization completed in 1.18 seconds
+Objective value: 252270.19
+
+Final bids for each hour:
+
+Hour 0:
+  Sell: DA price=$31.25/MWh, volume=769.6 MW
+  No buy bid
+
+Hour 2:
+  Sell: DA price=$27.27/MWh, volume=249.4 MW
+  No buy bid
+
+Hour 3:
+  Sell: DA price=$26.64/MWh, volume=703.2 MW
+  No buy bid
+
+Hour 4:
+  Sell: DA price=$26.94/MWh, volume=164.1 MW
+  No buy bid
+
+Hour 10:
+  No sell bid
+  Buy : DA price=$39.04/MWh, volume=521.6 MW
+
+Hour 15:
+  Sell: DA price=$21.08/MWh, volume=953.4 MW
+  No buy bid
+
+Hour 16:
+  Sell: DA price=$26.50/MWh, volume=760.2 MW
+  No buy bid
+
+Hour 18:
+  No sell bid
+  Buy : DA price=$48.80/MWh, volume=1252.4 MW
+
+Hour 20:
+  No sell bid
+  Buy : DA price=$52.42/MWh, volume=1119.8 MW
+
+Summary of active hours:
+  Hour 0: Sell volume = 769.6MW, Buy volume = 0.0MW
+  Hour 2: Sell volume = 249.4MW, Buy volume = 0.0MW
+  Hour 3: Sell volume = 703.2MW, Buy volume = 0.0MW
+  Hour 4: Sell volume = 164.1MW, Buy volume = 0.0MW
+  Hour 10: Sell volume = 0.0MW, Buy volume = 521.6MW
+  Hour 15: Sell volume = 953.4MW, Buy volume = 0.0MW
+  Hour 16: Sell volume = 760.2MW, Buy volume = 0.0MW
+  Hour 18: Sell volume = 0.0MW, Buy volume = 1252.4MW
+  Hour 20: Sell volume = 0.0MW, Buy volume = 1119.8MW
+
+========================================
+COMPLETED: 100 scenarios
+========================================

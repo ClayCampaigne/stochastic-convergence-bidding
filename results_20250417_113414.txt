@@ -1,0 +1,60 @@
+Optimization Results - 2025-04-17 11:34:14
+================================================================================
+
+
+========================================
+Running optimization for 100 scenarios...
+========================================
+
+Missing one of the expected variables: dalmp, rtlmp, wind_power_mw.
+
+Optimization completed in 4.86 seconds
+Objective value: 284720.90
+
+Final bids for each hour:
+
+Hour 3:
+  Sell: DA price=$25.21/MWh, volume=2348.6 MW
+  No buy bid
+
+Hour 4:
+  Sell: DA price=$26.90/MWh, volume=6.3 MW
+  No buy bid
+
+Hour 10:
+  No sell bid
+  Buy : DA price=$28.80/MWh, volume=1512.8 MW
+
+Hour 14:
+  Sell: DA price=$23.08/MWh, volume=299.7 MW
+  No buy bid
+
+Hour 17:
+  Sell: DA price=$10.10/MWh, volume=634.1 MW
+  No buy bid
+
+Hour 18:
+  No sell bid
+  Buy : DA price=$42.38/MWh, volume=1.0 MW
+
+Hour 20:
+  No sell bid
+  Buy : DA price=$64.88/MWh, volume=2086.2 MW
+
+Hour 23:
+  Sell: DA price=$9.81/MWh, volume=244.7 MW
+  No buy bid
+
+Summary of active hours:
+  Hour 3: Sell volume = 2348.6MW, Buy volume = 0.0MW
+  Hour 4: Sell volume = 6.3MW, Buy volume = 0.0MW
+  Hour 10: Sell volume = 0.0MW, Buy volume = 1512.8MW
+  Hour 14: Sell volume = 299.7MW, Buy volume = 0.0MW
+  Hour 17: Sell volume = 634.1MW, Buy volume = 0.0MW
+  Hour 18: Sell volume = 0.0MW, Buy volume = 1.0MW
+  Hour 20: Sell volume = 0.0MW, Buy volume = 2086.2MW
+  Hour 23: Sell volume = 244.7MW, Buy volume = 0.0MW
+
+========================================
+COMPLETED: 100 scenarios
+========================================
