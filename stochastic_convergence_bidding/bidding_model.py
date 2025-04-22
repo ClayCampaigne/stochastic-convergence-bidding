@@ -111,7 +111,7 @@ class BiddingModel:
         """
         # Ensure bid_prices is not None
         if bid_prices is None:
-            bid_prices = self.market_data.get_unique_DA_prices_for_hour(hour)
+            bid_prices = self.market_data.get_DA_bid_prices(hour)
         else:
             bid_prices = np.array(bid_prices)  # Ensure it's an ndarray for mypy joy
 
@@ -145,13 +145,13 @@ class BiddingModel:
             w_value: Array of bid volumes
             hour: Hour to get prices for
         """
-        bid_prices = self.market_data.get_unique_DA_prices_for_hour(hour)
+        bid_prices = self.market_data.get_DA_bid_prices(hour)
         
         for p, q in zip(bid_prices, w_value):
             if q > 0:
                 print(f"DA price: {p}, bid volume: {q}MW,")
 
-    def build_model(self):
+    def build_model(self, risk_constraint: bool):
         """
         Builds the CVXPY variables and constraints for each hour,
         plus CVaR constraints, volume caps, objective, etc.
@@ -169,7 +169,7 @@ class BiddingModel:
         # 1) For each hour, build the spread matrix and define the CP variables
         for hour_i in self.hours:
             # Retrieve candidate bid prices
-            bid_prices = self.market_data.get_unique_DA_prices_for_hour(hour_i)
+            bid_prices = self.market_data.get_DA_bid_prices(hour_i)
             self.bid_prices_per_hour.append(bid_prices)
 
             # Build the "scenario x price" matrix for sale or purchase
@@ -202,18 +202,20 @@ class BiddingModel:
         #    We want a shape-(n_scenarios,) expression for total daily profit
         # scenario_profits is a list of length(len(hours)), each an (n_scenarios,) expression
         # We can sum them directly: total_scenario_profit = sum(scenario_profits).
-        total_scenario_profit = cp.sum(scenario_profits)  # shape (n_scenarios,)
+        scenario_profit = cp.sum(scenario_profits)  # shape (n_scenarios,)
+        total_scenario_profit = cp.sum(scenario_profit, axis=0)  # scalar
 
         # 4) CVaR constraint
         n_scenarios = len(ds.scenario)
         t = cp.Variable(name="t_cvar")
         z = cp.Variable(n_scenarios, nonneg=True, name="z_cvar")
 
-        constraints.append(z >= t - total_scenario_profit)
-        constraints.append(t - (1.0 / ((1 - self.alpha) * n_scenarios)) * cp.sum(z) >= self.rho)
+        if risk_constraint:
+            constraints.append(z >= t - total_scenario_profit)
+            constraints.append(t - (1.0 / ((1 - self.alpha) * n_scenarios)) * cp.sum(z) >= self.rho)
 
         # 5) Objective: maximize average profit
-        sample_average_profit = cp.sum(total_scenario_profit) / n_scenarios
+        sample_average_profit = total_scenario_profit / n_scenarios
         objective = cp.Maximize(sample_average_profit)
 
         # 6) Create the CP problem

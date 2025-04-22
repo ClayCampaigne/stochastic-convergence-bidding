@@ -41,11 +41,13 @@ class MarketData:
         self,
         numpy_data: np.ndarray,
         target_names: List[str],
-        dataset: Optional[xr.Dataset] = None
+        dataset: Optional[xr.Dataset] = None,
+        fixed_grid_prices: Optional[List[float]] = None,
     ):
         self.numpy_data = numpy_data
         self.target_names = target_names
         self.dataset: xr.Dataset = dataset if dataset is not None else xr.Dataset()
+        self.fixed_grid_prices = fixed_grid_prices
         
         # If dataset not provided, build it from the numpy_data array
         if dataset is None and len(numpy_data.shape) == 3:
@@ -76,20 +78,27 @@ class MarketData:
         """
         return self.dataset
         
-    def get_unique_DA_prices_for_hour(self, hour: int) -> np.ndarray:
+    def get_DA_bid_prices(self, hour: int, num_bid_prices: Optional[int] = None) -> np.ndarray:
         """
-        Get the unique realized day-ahead (DA) clearing prices for a given hour
-        from the dataset. These prices are typically used as candidate bid prices.
+        Get bid prices for a given hour based on the specified strategy.
+        
+        Three possible behaviors:
+        1. If self.fixed_grid_prices is set: use those fixed prices
+        2. If num_bid_prices is provided: create evenly spaced prices between min/max observed prices
+        3. Otherwise: use all unique observed DA prices (original behavior)
 
         Parameters
         ----------
         hour : int
             The hour index (0 <= hour < num_hours in the dataset).
+        num_bid_prices : Optional[int], default None
+            If provided, creates this many evenly spaced price points 
+            between the min and max observed prices.
 
         Returns
         -------
         np.ndarray
-            Array of unique DA prices (dalmp) for the specified hour.
+            Array of price points to use for bidding in the specified hour.
 
         Raises
         ------
@@ -100,7 +109,40 @@ class MarketData:
             raise Exception(
                 f"Invalid hour: expected between 0 and {self.dataset.hour[-1].values}, got {hour}"
             )
-        return np.unique(self.dataset.sel(hour=hour)["dalmp"].values)
+            
+        # Case 1: Use fixed grid prices if provided
+        if self.fixed_grid_prices is not None:
+            return np.array(self.fixed_grid_prices)
+            
+        # Get the hour data
+        hour_data = self.dataset.sel(hour=hour)
+        
+        # Case 2: Create evenly spaced price points if num_bid_prices is specified
+        if num_bid_prices is not None:
+            min_price = np.min(hour_data["dalmp"].values)
+            max_price = np.max(hour_data["dalmp"].values)
+            return np.linspace(min_price, max_price, num_bid_prices)
+            
+        # Case 3: Default to original behavior - use all unique observed prices
+        return np.unique(hour_data["dalmp"].values)
+        
+    def get_unique_DA_prices_for_hour(self, hour: int) -> np.ndarray:
+        """
+        Get the unique realized day-ahead (DA) clearing prices for a given hour.
+        This is kept for backward compatibility.
+        
+        Parameters
+        ----------
+        hour : int
+            The hour index (0 <= hour < num_hours in the dataset).
+
+        Returns
+        -------
+        np.ndarray
+            Array of unique DA prices (dalmp) for the specified hour.
+        """
+        # Simply call the new more flexible method with default parameters
+        return self.get_DA_bid_prices(hour)
 
     def print_hourly_report(self) -> None:
         """
