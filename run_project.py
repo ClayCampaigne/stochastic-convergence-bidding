@@ -6,10 +6,10 @@ import concurrent.futures
 import threading
 from datetime import datetime
 import matplotlib.pyplot as plt
+from loguru import logger
 
 # Set max workers for parallel processing (adjust based on your CPU cores)
 # Using N_CPU - 1 is a good rule of thumb to leave one core free for system tasks
-import os
 MAX_WORKERS = max(1, os.cpu_count() - 1) if os.cpu_count() else 4
 
 from stochastic_convergence_bidding.bidding_model import BiddingModel
@@ -22,10 +22,9 @@ np.random.seed(1)
 os.makedirs("./results", exist_ok=True)
 
 # Analysis parameters
-# Final analysis parameters
-# Full analysis parameters
 sample_sizes = [500, 1000, 2000, 3000, 4000, 5000]  # Different scenario counts to test
-num_bid_prices_list = [20, 50, None]  # Different number of bid prices to test (None = unlimited)
+num_bid_prices_list = [20, 50, None]  # Different number of bid prices to test (None = unlimited: use all
+# sampled DA prices)
 
 # Fixed grid of price points from -100 to 200 with $5 increments
 fixed_grid_prices = list(range(-100, 205, 5))  # [-100, -95, -90, ..., 195, 200]
@@ -103,122 +102,106 @@ def run_optimization(n_scenarios, num_bid_prices=None, verbose=False, is_risk_co
     
     return model.objective_value, elapsed_time, model
 
+
 # Function to run the main optimization and print detailed results
-def run_main_optimization(n_scenarios, is_risk_constraint=True, use_fixed_grid=False, num_bid_prices=None):
-    # Redirect output to both console and file
-    original_stdout = sys.stdout
-    with open(output_file, 'w') as f:
-        class Tee:
-            def __init__(self, *files):
-                self.files = files
-            
-            def write(self, obj):
-                for f in self.files:
-                    f.write(obj)
-                    f.flush()  # Ensure immediate write
-            
-            def flush(self):
-                for f in self.files:
-                    f.flush()
-        
-        sys.stdout = Tee(sys.stdout, f)
-        
-        # Print a header
-        print(f"Optimization Results - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        print(f"=" * 80)
-        
-        print(f"\n\n{'=' * 40}")
-        print(f"Running optimization for {n_scenarios} scenarios...")
-        print(f"{'=' * 40}\n")
+def run_optimization_and_report_results(n_scenarios, is_risk_constraint=True, use_fixed_grid=False,
+                                        num_bid_prices=None):
+    # Configure loguru to output to both console and file
+    # First, remove any existing handlers
+    logger.remove()
     
-        start_time = time.time()
-        
-        # Set up parameters for fixed grid or normal optimization
-        fixed_bid_prices = fixed_grid_prices if use_fixed_grid else None
-        
-        # Run the optimization
-        revenue, solve_time, model = run_optimization(
-            n_scenarios, 
-            verbose=True, 
-            is_risk_constraint=is_risk_constraint,
-            fixed_bid_prices=fixed_bid_prices
-        )
-        
-        end_time = time.time()
-        print(f"\nTotal time (including data generation): {end_time - start_time:.2f} seconds")
-        print(f"Expected Revenue: ${revenue:.2f}")
-        
-        # Flush output to ensure results are saved
-        sys.stdout.flush()
+    # Add console handler
+    logger.add(sys.stdout, level="INFO")
     
-        # Print all bids for each hour
-        print("\nBids for each hour:")
-        active_hours = []
+    # Add file handler with 'w' mode to overwrite any existing file
+    logger.add(output_file, level="INFO", mode="w")
+    
+    # Print a header
+    logger.info(f"Optimization Results - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    logger.info(f"=" * 80)
+    
+    logger.info(f"\n\n{'=' * 40}")
+    logger.info(f"Running optimization for {n_scenarios} scenarios...")
+    logger.info(f"{'=' * 40}\n")
+
+    start_time = time.time()
+    
+    # Set up parameters for fixed grid or normal optimization
+    fixed_bid_prices = fixed_grid_prices if use_fixed_grid else None
+    
+    # Run the optimization
+    revenue, solve_time, model = run_optimization(
+        n_scenarios, 
+        verbose=True, 
+        is_risk_constraint=is_risk_constraint,
+        fixed_bid_prices=fixed_bid_prices
+    )
+    
+    end_time = time.time()
+    logger.info(f"\nTotal time (including data generation): {end_time - start_time:.2f} seconds")
+    logger.info(f"Expected Revenue: ${revenue:.2f}")
+    
+    # Print all bids for each hour
+    logger.info("\nBids for each hour:")
+    active_hours = []
+    
+    for hour_j in hours:
+        all_bids = model.all_bids[hour_j]
         
-        for hour_j in hours:
-            all_bids = model.all_bids[hour_j]
+        # Skip hours with no activity
+        sell_bids = all_bids["sell"]
+        buy_bids = all_bids["buy"]
+        
+        if not sell_bids and not buy_bids:
+            continue
             
-            # Skip hours with no activity
+        active_hours.append(hour_j)
+        logger.info(f"\nHour {hour_j}:")
+        
+        # Sell side
+        if sell_bids:
+            logger.info(f"  Sell bids:")
+            for i, bid in enumerate(sell_bids):
+                logger.info(f"    #{i+1}: DA price=${bid['price']:.2f}/MWh, volume={bid['volume_mw']:.1f} MW")
+        else:
+            logger.info("  No sell bids")
+        
+        # Buy side
+        if buy_bids:
+            logger.info(f"  Buy bids:")
+            for i, bid in enumerate(buy_bids):
+                logger.info(f"    #{i+1}: DA price=${bid['price']:.2f}/MWh, volume={bid['volume_mw']:.1f} MW")
+        else:
+            logger.info("  No buy bids")
+    
+    # Summary of active hours
+    if active_hours:
+        logger.info("\nSummary of active hours:")
+        for hour in sorted(active_hours):
+            all_bids = model.all_bids[hour]
             sell_bids = all_bids["sell"]
             buy_bids = all_bids["buy"]
             
-            if not sell_bids and not buy_bids:
-                continue
-                
-            active_hours.append(hour_j)
-            print(f"\nHour {hour_j}:")
+            # Calculate the total volume for sell and buy
+            total_sell_volume = sum(bid["volume_mw"] for bid in sell_bids)
+            total_buy_volume = sum(bid["volume_mw"] for bid in buy_bids)
             
-            # Sell side
-            if sell_bids:
-                print(f"  Sell bids:")
-                for i, bid in enumerate(sell_bids):
-                    print(f"    #{i+1}: DA price=${bid['price']:.2f}/MWh, volume={bid['volume_mw']:.1f} MW")
-            else:
-                print("  No sell bids")
+            # Count the number of non-zero bids
+            num_sell_bids = len(sell_bids)
+            num_buy_bids = len(buy_bids)
             
-            # Buy side
-            if buy_bids:
-                print(f"  Buy bids:")
-                for i, bid in enumerate(buy_bids):
-                    print(f"    #{i+1}: DA price=${bid['price']:.2f}/MWh, volume={bid['volume_mw']:.1f} MW")
-            else:
-                print("  No buy bids")
-            
-            # Flush after each hour's output
-            sys.stdout.flush()
-        
-        # Summary of active hours
-        if active_hours:
-            print("\nSummary of active hours:")
-            for hour in sorted(active_hours):
-                all_bids = model.all_bids[hour]
-                sell_bids = all_bids["sell"]
-                buy_bids = all_bids["buy"]
-                
-                # Calculate the total volume for sell and buy
-                total_sell_volume = sum(bid["volume_mw"] for bid in sell_bids)
-                total_buy_volume = sum(bid["volume_mw"] for bid in buy_bids)
-                
-                # Count the number of non-zero bids
-                num_sell_bids = len(sell_bids)
-                num_buy_bids = len(buy_bids)
-                
-                print(f"  Hour {hour}: {num_sell_bids} sell bid(s) with total volume = {total_sell_volume:.1f}MW, " 
-                      f"{num_buy_bids} buy bid(s) with total volume = {total_buy_volume:.1f}MW")
-        else:
-            print("\nNo active bids in any hour.")
-            
-        # Flush at the end of iteration
-        sys.stdout.flush()
-        
-        # Write a clear separator to mark completion
-        print(f"\n{'=' * 40}")
-        print(f"COMPLETED: {n_scenarios} scenarios")
-        print(f"{'=' * 40}")
-        sys.stdout.flush()
+            logger.info(f"  Hour {hour}: {num_sell_bids} sell bid(s) with total volume = {total_sell_volume:.1f}MW, " 
+                  f"{num_buy_bids} buy bid(s) with total volume = {total_buy_volume:.1f}MW")
+    else:
+        logger.info("\nNo active bids in any hour.")
     
-        # Restore original stdout
-        sys.stdout = original_stdout
+    # Write a clear separator to mark completion
+    logger.info(f"\n{'=' * 40}")
+    logger.info(f"COMPLETED: {n_scenarios} scenarios")
+    logger.info(f"{'=' * 40}")
+    
+    # Remove all handlers to clean up resources
+    logger.remove()
     
     return revenue, solve_time
 
@@ -762,7 +745,7 @@ if __name__ == "__main__":
         )
     else:
         # Run the standard optimization to get detailed output
-        revenue, solve_time = run_main_optimization(
+        revenue, solve_time = run_optimization_and_report_results(
             args.scenarios, 
             is_risk_constraint=risk_constraint,
             use_fixed_grid=use_fixed_grid,
