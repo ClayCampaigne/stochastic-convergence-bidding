@@ -51,5 +51,8 @@ data/energy_market_samples*.npz
 # Specific project files
 refactor_run_project_notes.txt
 run_project_simplification_draft.py
-TODO.md
 consolidate_results.py
+
+# Backup files
+*_backup.py
+*.bak
