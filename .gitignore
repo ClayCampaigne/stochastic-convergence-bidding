@@ -43,3 +43,13 @@ Thumbs.db
 
 # Results files
 results_*
+results/
+*.npz
+data/energy_market_samples*.npz
+*.csv
+
+# Specific project files
+refactor_run_project_notes.txt
+run_project_simplification_draft.py
+TODO.md
+consolidate_results.py
