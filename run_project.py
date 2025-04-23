@@ -214,17 +214,22 @@ def run_optimization(
     hours_list: List[int] = list(range(24)),
     verbose_market_data: bool = False,
 ) -> Tuple[Optional[float], Optional[float], Optional[str], Optional[BiddingModel]]:
-    pid = os.getpid()
+    # Get thread ID for the cache key - this works with ThreadPoolExecutor
+    import threading
+    thread_id = threading.get_ident()
+    thread_name = threading.current_thread().name
+    
     try:
-        cache_key = (pid, n_scenarios)
-        if cache_key in sample_data_cache: data, target_names = sample_data_cache[cache_key]
+        cache_key = (thread_id, n_scenarios)
+        if cache_key in sample_data_cache: 
+            data, target_names = sample_data_cache[cache_key]
         else:
             data, target_names = generate_sample_data(num_samples=n_scenarios, num_hours=max(hours_list) + 1, random_seed=0)
             sample_data_cache[cache_key] = (data, target_names)
         market_data = MarketData(data, target_names)
         if verbose_market_data: market_data.print_hourly_report()
     except Exception as e:
-        logger.error(f"[{pid}] Error generating/loading data for {n_scenarios} scenarios: {e}")
+        logger.error(f"[Thread {thread_name}] Error generating/loading data for {n_scenarios} scenarios: {e}")
         return None, None, "data_error", None
 
     model = None
@@ -239,23 +244,25 @@ def run_optimization(
         if model.problem is not None:
              status = model.problem.status; objective_value = model.objective_value
              if status not in ["optimal", "optimal_inaccurate"]:
-                 logger.warning(f"[{pid}] Solver status for {n_scenarios} scenarios, {get_bid_prices_f.__name__}: {status}")
+                 logger.warning(f"[Thread {thread_name}] Solver status for {n_scenarios} scenarios, {get_bid_prices_f.__name__}: {status}")
                  objective_value = objective_value if objective_value is not None else np.nan
         else: status = "build_failed?"
         return objective_value, solve_time_s, status, model
     except Exception as e:
-        logger.exception(f"[{pid}] Error during optimization model execution for {n_scenarios} scenarios: {e}")
+        logger.exception(f"[Thread {thread_name}] Error during optimization model execution for {n_scenarios} scenarios: {e}")
         return None, solve_time_s, "model_error", model
 
 
 # --- Parallel Execution Worker ---
 def _run_single_case_worker(case: AnalysisCase) -> CaseResult:
-    pid = os.getpid()
-    logger.debug(f"[Worker {pid}] Starting: {case.case_id}")
+    # Use thread name instead of process ID since we're using ThreadPoolExecutor
+    import threading
+    thread_name = threading.current_thread().name
+    logger.debug(f"[Thread {thread_name}] Starting: {case.case_id}")
     start_time = time.time()
     revenue, solve_time_s, status, model_instance = run_optimization(n_scenarios=case.n_scenarios, get_bid_prices_f=case.price_strategy.function, risk_constraint=case.risk_constraint)
     total_time_s = time.time() - start_time
-    logger.info(f"[Worker {pid}] Finished: {case.case_id} in {total_time_s:.2f}s (Solve: {f'{solve_time_s:.2f}s' if solve_time_s is not None else 'N/A'}, Status: {status})")
+    logger.info(f"[Thread {thread_name}] Finished: {case.case_id} in {total_time_s:.2f}s (Solve: {f'{solve_time_s:.2f}s' if solve_time_s is not None else 'N/A'}, Status: {status})")
     result = CaseResult(case=case, revenue=revenue, solve_time_s=solve_time_s, total_time_s=total_time_s, status=status, error_message=None)
     if status in ["data_error", "model_error", "execution_error"]: result.error_message = f"Error during {status} phase."
     return result
@@ -271,7 +278,8 @@ def run_parallel_analysis(cases: List[AnalysisCase], results_filename_base: str)
     try:
         with open(incremental_filename, 'w', newline='', encoding='utf-8') as csvfile:
             writer = csv.writer(csvfile); writer.writerow(header)
-            with concurrent.futures.ProcessPoolExecutor(max_workers=MAX_WORKERS) as executor:
+            # Use ThreadPoolExecutor instead of ProcessPoolExecutor to avoid pickling issues with nested functions
+            with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
                 future_to_case = {executor.submit(_run_single_case_worker, case): case for case in cases}
                 completed_count = 0
                 for future in concurrent.futures.as_completed(future_to_case):
@@ -405,7 +413,7 @@ def plot_tradeoff(aggregated_results: Dict[int, Dict[str, CaseResult]], output_f
 def visualize_results(results: List[CaseResult], results_filename_base: str):
     logger.info("Generating visualizations..."); aggregated = aggregate_results(results)
     if not aggregated: logger.warning("No valid results to visualize."); return
-    scenarios = sorted(aggregated.keys()); strategies = sorted(list(set(strat for scen_results in aggregated.results.values() for strat in scen_results.keys())))
+    scenarios = sorted(aggregated.keys()); strategies = sorted(list(set(strat for scen_results in aggregated.values() for strat in scen_results.keys())))
     plot_configs = [
         {'accessor': lambda r: r.revenue, 'suffix': '_revenue_vs_strategy', 'title': 'Revenue vs. Price Strategy', 'ylabel': 'Expected Revenue ($)'},
         {'accessor': lambda r: r.revenue, 'suffix': '_revenue_vs_scenarios', 'title': 'Revenue vs. Number of Scenarios', 'ylabel': 'Expected Revenue ($)'},
