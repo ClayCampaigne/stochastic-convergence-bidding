@@ -2,7 +2,8 @@
 
 ## Overview
 
-This project implements a stochastic optimization approach for convergence bidding in electricity markets, using Gaussian Mixture Models (GMMs) to generate synthetic price data and a Sample-PV algorithm for optimization.
+This project implements a stochastic optimization approach for convergence bidding in electricity markets, using Gaussian Mixture Models (GMMs) to generate synthetic price data and the Sample-PV algorithm (from A General Stochastic Optimization Framework for Convergence Bidding
+Letif Mones, Sean Lovett) for the optimization.
 
 ## Features
 
