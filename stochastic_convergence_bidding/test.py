@@ -95,7 +95,7 @@ def test_problem_lower_and_upper_bound():
     ub_obj_val = model.perfect_foresight_upper_bound()
     
     # Run the stochastic optimization
-    model.build_model()
+    model.build_model(risk_constraint=True)
     model.solve_model()
     _, _, objective_value, _ = model.get_solution()
     
