@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
@@ -5,7 +6,9 @@ import matplotlib.gridspec as gridspec
 from scipy.stats import gaussian_kde
 
 # Load data
-archive = np.load('/Users/claywcampaigne/Documents/stochastic-convergence-bidding/data/energy_market_samples.npz')
+data_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                         'data', 'energy_market_samples.npz')
+archive = np.load(data_path)
 data = archive['data']
 target_names = archive['target_names']
 

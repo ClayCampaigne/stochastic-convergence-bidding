@@ -173,5 +173,7 @@ class MarketData:
             print(
                 f"Hour {hour:2d} | "
                 f"Avg Spread = {avg_spread:7.2f}, "
-                f"Std Spread = {std_spread:6.2f}"
+                f"Std Spread = {std_spread:6.2f} "
+                f"Min DA Price = {dalmp_hour.min().item():7.2f}, "
+                f"Max DA Price = {dalmp_hour.max().item():7.2f}, "
             )

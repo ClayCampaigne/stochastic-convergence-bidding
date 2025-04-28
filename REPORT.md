@@ -11,7 +11,7 @@ formulation. Subject to the limitations that it does not guarantee a single bid 
 general approach that is suitable to any distribution, given enough samples.
 
 Restricting attention for the moment to a single hour, the idea is that we place a (typically-zero)
-bid volume at every DA price that is sampled. With a high number of samples this approximates a
+bid volume at every DA price that is sampled. With a high number of samples, this approximates a
 continuum of possible bid prices. We precompute a matrix of DART spread revenues such that when we
 multiply the matrix by the vector of bid volumes at each potential price, we get a vector of DART
 spread revenues, one for each scenario. This allows us to optimize both bid prices and quantities in a single LP.
@@ -49,15 +49,10 @@ The DART spread is -19.33 with sample size 500, and -5.64 with sample size 1000.
 Given that our algorithm has scaling issues, we will need to experiment with sample size and see if we 
 can get speedups so that the optimization results reflect the risk profile of the true distribution.
 
-Another issue is that this method is not guaranteed to result in a single bid block and single offer block.
-Currently, we postprocess the results to choose the single largest-volume bid and offer for each hour.
-In addition to removing smaller-volume bids, bids with similar prices could be combined.
-
-
 ## Followup work:
-Natural extensions would include adding more ad-hoc constraints, for example limiting volume in individual 
+Natural extensions would include adding more ad-hoc constraints: for example, limiting volume in individual 
 hours to manage risk, especially where we are concerned that we may not be accurately capturing tail risk.
-(For example, see the issue above where the spread in HE 23 depends strongly on sample size.)
+(See the issue above where the spread in HE 23 depends strongly on sample size.)
 Adding ad-hoc risk-management constraints may be particularly important as the true data distribution
 is probably nonstationary, so that any estimation method will have a hard time capturing tail risk.
 Relatedly, we need to investigate how to speed up solution times.

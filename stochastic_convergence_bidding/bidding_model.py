@@ -1,19 +1,21 @@
-# --- START OF UPDATED bidding_model.py ---
+# --- START OF UPDATED bidding_model.py with fit/evaluate_oos ---
 
 #!/usr/bin/env python3
 """
 Bidding model class for stochastic convergence bidding optimization.
 Implements the Sample-PV algorithm for convergence bidding.
 Accepts a function to determine bid prices per hour.
+Includes methods for fitting the model and evaluating out-of-sample performance.
 """
 
 import time
-from typing import Dict, List, Optional, Tuple, Callable # Added Callable
+from typing import Dict, List, Optional, Tuple, Callable, Union # Added Union
 
 import cvxpy as cp
 import numpy as np
-import xarray as xr # Added xr
+import xarray as xr
 from numpy.typing import NDArray
+from loguru import logger # Using logger for warnings/errors
 
 # Assuming MarketData just holds the dataset now
 from stochastic_convergence_bidding.market_data import MarketData
@@ -22,457 +24,571 @@ from stochastic_convergence_bidding.market_data import MarketData
 BidPriceFunction = Callable[[xr.Dataset], np.ndarray]
 
 
+# Helper function to calculate CVaR
+def calculate_empirical_cvar(profits: np.ndarray, alpha: float) -> Optional[float]:
+    """Calculates the empirical CVaR for a given profit distribution."""
+    if not isinstance(profits, np.ndarray) or profits.ndim != 1 or profits.size == 0:
+        logger.error("Invalid input for CVaR calculation: Expected 1D numpy array.")
+        return None
+    if not 0 < alpha < 1:
+        logger.error(f"Invalid alpha for CVaR calculation: {alpha}. Must be (0, 1).")
+        return None
+
+    n_scenarios = len(profits)
+    q = 100 * (1 - alpha) # Percentile for VaR (lower tail for profits)
+
+    # Handle potential NaNs
+    valid_profits = profits[~np.isnan(profits)]
+    if valid_profits.size == 0:
+        logger.warning("No valid profit scenarios for CVaR calculation.")
+        return None
+
+    if valid_profits.size < 1 / (1 - alpha):
+         logger.warning(f"Number of scenarios ({valid_profits.size}) is small relative to alpha ({alpha}), CVaR estimate may be unreliable.")
+
+    var = np.percentile(valid_profits, q)
+    cvar = np.mean(valid_profits[valid_profits <= var])
+
+    return cvar
+
+
 class BiddingModel:
     """
-    Builds and solves the sample-PV convergence bidding optimization
-    for multiple hours with scenario-based CVaR, using a provided
-    function to determine bid prices for each hour.
+    Builds, solves (fits), and evaluates the sample-PV convergence
+    bidding optimization for multiple hours with scenario-based CVaR.
+
+    Requires a function to determine bid prices for each hour.
+    Out-of-sample evaluation assumes the SAME bid prices are used
+    (i.e., requires a data-independent price strategy like fixed_grid_prices).
     """
 
     def __init__(
         self,
-        market_data: MarketData,
+        train_market_data: MarketData, # Renamed for clarity
         hours: List[int],
-        get_bid_prices_f: BidPriceFunction, # Added: Function to get prices
+        get_bid_prices_f: BidPriceFunction,
         alpha: float = 0.95,
         rho: float = -1000.0,
         max_bid_volume_per_hour: float = 150.0,
-        verbose: bool = False, # Defaulting verbose to False for solver
+        verbose_solver: bool = False, # Renamed for clarity
     ):
         """
-        Initialize the bidding model with market data and parameters.
+        Initialize the bidding model.
 
         Args:
-            market_data: MarketData object containing dataset
+            train_market_data: MarketData object containing training dataset
             hours: List of hours to optimize for
-            get_bid_prices_f: Function that takes hourly xr.Dataset and returns bid prices
+            get_bid_prices_f: Function that takes hourly xr.Dataset and returns bid prices.
+                              IMPORTANT: For evaluate_oos to work correctly, this function
+                              MUST return the same prices regardless of the input dataset
+                              (e.g., created by fixed_grid_prices).
             alpha: Quantile level for CVaR (default: 0.95)
             rho: CVaR threshold (expected shortfall level to control)
             max_bid_volume_per_hour: Maximum bid volume per hour
-            verbose: Whether to print CVXPY solver output (default: False)
+            verbose_solver: Whether to print CVXPY solver output (default: False)
         """
-        self.market_data = market_data
+        self.train_market_data = train_market_data
         self.hours = hours
-        self.get_bid_prices_f = get_bid_prices_f # Store the function
+        self.get_bid_prices_f = get_bid_prices_f
         self.alpha = alpha
         self.rho = rho
         self.max_bid_volume_per_hour = max_bid_volume_per_hour
-        self.verbose = verbose # Controls solver output
+        self.verbose_solver = verbose_solver
 
+        # --- Model Internals (populated by _build_model) ---
         self.sell_vars: List[cp.Variable] = []
         self.buy_vars: List[cp.Variable] = []
-        self.bid_prices_per_hour: List[NDArray[np.float64]] = [] # Stores prices used
-
         self.problem: Optional[cp.Problem] = None
         self.objective_expr: Optional[cp.Expression] = None
-        self.objective_value: Optional[float] = None
+        self.cvar_t: Optional[cp.Variable] = None
+        self.cvar_z: Optional[cp.Variable] = None
 
-        # Final bid structures populated by postprocess_bids
-        self.finalized_bids: dict[int, dict[str, dict[str, float]]] = {}
+        # --- Results from fit() ---
+        self.bid_prices_per_hour: List[NDArray[np.float64]] = [] # Prices used during fit
+        self.trained_sell_volumes: Optional[List[NDArray[np.float64]]] = None
+        self.trained_buy_volumes: Optional[List[NDArray[np.float64]]] = None
+        self.fit_objective_value: Optional[float] = None
+        self.fit_status: Optional[str] = None
+        self.fit_cvar_value: Optional[float] = None # Store IS CVaR if needed
+
+        # --- Bids (populated by _postprocess_bids after fit) ---
         self.all_bids: dict[int, dict[str, List[dict[str, float]]]] = {}
 
-    def precompute_moneyness_bool_matrix(
-        self, bid_prices_row_vector: np.ndarray, dalmp_column_vector: np.ndarray, is_sale: bool
+    # --- Private Helper for Calculating Spread Matrix ---
+
+    def _calculate_spread_matrix(
+        self, market_data: MarketData, hour: int, is_sale: bool, bid_prices: np.ndarray
     ) -> np.ndarray:
-        """
-        Create matrix of booleans, entry (i,j) is True if the DA bid price at column j is in the money for scenario i.
-        (Unchanged from previous version)
-        """
-        if is_sale:
-            is_in_the_money_matrix = bid_prices_row_vector <= dalmp_column_vector
-        else:
-            is_in_the_money_matrix = bid_prices_row_vector >= dalmp_column_vector
-        return is_in_the_money_matrix
+        """ Calculates the scenario_revenue_matrix for a given dataset and prices. """
+        bid_prices = np.asarray(bid_prices) # Ensure ndarray
 
-    def precompute_cleared_spread_matrix(
-        self, hour: int, is_sale: bool, bid_prices: np.ndarray # Made bid_prices non-optional
-    ) -> np.ndarray:
-        """
-        Compute matrix: each row i corresponds to a scenario, each column j corresponds to a candidate DA bid price p_j.
-        Uses the provided bid_prices array.
-
-        Args:
-            hour: Hour to compute the spread matrix for
-            is_sale: Flag indicating if this is for sell bids (True) or buy bids (False)
-            bid_prices: Array of bid prices to use for this hour
-
-        Returns:
-            Matrix where each element (i,j) represents scenario revenue for scenario i at price j
-        """
-        # Removed the default fetching logic: bid_prices must be provided
-        bid_prices = np.array(bid_prices) # Ensure ndarray
-
-        ds = self.market_data.dataset
-        # Ensure data exists for the hour before selecting
+        ds = market_data.dataset
         if hour not in ds['hour'].values:
              raise ValueError(f"Hour {hour} not found in market data dataset.")
         hour_ds = ds.sel(hour=hour)
         dalmp = hour_ds["dalmp"].values
         rtlmp = hour_ds["rtlmp"].values
 
-        # Ensure correct shapes for broadcasting
-        bid_prices_row_vector = bid_prices.reshape(1, -1) # Explicit reshape
+        if dalmp.ndim == 0: dalmp = dalmp.reshape(1,) # Handle single scenario data
+        if rtlmp.ndim == 0: rtlmp = rtlmp.reshape(1,)
+
+        bid_prices_row_vector = bid_prices.reshape(1, -1)
         dalmp_column_vector = dalmp.reshape(-1, 1)
         rtlmp_column_vector = rtlmp.reshape(-1, 1)
 
         dart_spread_column_vector = dalmp_column_vector - rtlmp_column_vector
 
-        moneyness_bool_matrix = self.precompute_moneyness_bool_matrix(
+        moneyness_bool_matrix = self._precompute_moneyness_bool_matrix(
             bid_prices_row_vector, dalmp_column_vector, is_sale
         )
 
         scenario_revenue_matrix = dart_spread_column_vector * moneyness_bool_matrix
         return scenario_revenue_matrix
 
-    # Removed print_bids_w_nonzero_volumes - this can be handled by run_project.py
-    # using the data in self.all_bids after postprocessing.
+    # --- Internal Model Building Logic ---
 
-    def build_model(self, risk_constraint: bool):
+    def _precompute_moneyness_bool_matrix( # Renamed with underscore
+        self, bid_prices_row_vector: np.ndarray, dalmp_column_vector: np.ndarray, is_sale: bool
+    ) -> np.ndarray:
+        """ Creates matrix of booleans indicating if a bid price is in the money. """
+        if is_sale:
+            is_in_the_money_matrix = bid_prices_row_vector <= dalmp_column_vector
+        else:
+            is_in_the_money_matrix = bid_prices_row_vector >= dalmp_column_vector
+        return is_in_the_money_matrix
+
+    def _build_model(self, risk_constraint: bool):
         """
-        Builds the CVXPY variables and constraints for each hour,
-        plus CVaR constraints, volume caps, objective, etc.
-        Uses self.get_bid_prices_f to determine prices per hour.
+        Builds the CVXPY optimization problem using the training data.
+        Populates self.problem, self.sell_vars, self.buy_vars, etc.
         """
-        ds = self.market_data.dataset
-        n_scenarios_total = ds.dims['scenario'] # Get total number of scenarios
+        logger.debug("Building optimization model...")
+        ds = self.train_market_data.dataset # Use training data
+        n_scenarios_total = ds.sizes.get('scenario', 0)
+        if n_scenarios_total == 0: raise ValueError("Training data has zero scenarios.")
+
         constraints: List[cp.Constraint] = []
         scenario_profits = []
         total_sale_expr = 0
         total_buy_expr = 0
 
-        self.bid_prices_per_hour = [] # Clear previous prices if rebuilding
+        # Clear previous build results
+        self.bid_prices_per_hour = []
         self.sell_vars = []
         self.buy_vars = []
+        self.problem = None
+        self.objective_expr = None
+        self.cvar_t = None
+        self.cvar_z = None
 
-        # 1) For each hour, get prices, build spread matrix, define variables
+        # 1) Process each hour
         for hour_i in self.hours:
-            # Get hour-specific data slice for the price function
-            try:
-                hour_data = ds.sel(hour=hour_i)
-            except KeyError:
-                 raise ValueError(f"Hour {hour_i} not found in dataset coordinates during build_model.")
+            try: hour_data = ds.sel(hour=hour_i)
+            except KeyError: raise ValueError(f"Hour {hour_i} not found in training dataset.")
 
-            # *** Use the provided function to get bid prices ***
-            bid_prices = self.get_bid_prices_f(hour_data)
-            if not isinstance(bid_prices, np.ndarray):
-                 bid_prices = np.array(bid_prices) # Ensure numpy array
-            if bid_prices.ndim == 0: # Handle scalar case (e.g., if only one price)
-                bid_prices = bid_prices.reshape(1,)
+            bid_prices = self.get_bid_prices_f(hour_data) # Use stored function
+            bid_prices = np.asarray(bid_prices)
+            if bid_prices.ndim == 0: bid_prices = bid_prices.reshape(1,)
             if bid_prices.size == 0:
-                 # Handle case with no bid prices gracefully? Or raise error?
-                 # For now, let's skip this hour if no prices are generated.
-                 print(f"Warning: No bid prices generated for hour {hour_i}. Skipping.")
-                 # Add placeholders or handle as needed if skipping isn't desired
-                 # We need to ensure lists maintain correct length if not skipping.
-                 # Let's assume for now valid prices are always returned.
-                 continue # Or raise error? Raising might be safer.
-                 # raise ValueError(f"No bid prices generated by get_bid_prices_f for hour {hour_i}")
+                 logger.error(f"No bid prices generated by get_bid_prices_f for hour {hour_i}. Cannot build model.")
+                 raise ValueError(f"No bid prices generated for hour {hour_i}")
 
             self.bid_prices_per_hour.append(bid_prices)
             n_bids = len(bid_prices)
 
-            # Build the "scenario x price" matrix using these prices
-            sale_matrix = self.precompute_cleared_spread_matrix(hour_i, is_sale=True, bid_prices=bid_prices)
-            buy_matrix = self.precompute_cleared_spread_matrix(hour_i, is_sale=False, bid_prices=bid_prices)
+            # Calculate spread matrices using *training* data
+            sale_matrix = self._calculate_spread_matrix(self.train_market_data, hour_i, is_sale=True, bid_prices=bid_prices)
+            buy_matrix = self._calculate_spread_matrix(self.train_market_data, hour_i, is_sale=False, bid_prices=bid_prices)
 
-            # Check matrix dimensions consistency
-            n_scenarios_hour, n_bids_sale = sale_matrix.shape
-            _, n_bids_buy = buy_matrix.shape
-            if n_scenarios_hour != n_scenarios_total:
-                raise ValueError(f"Scenario dimension mismatch for hour {hour_i}. Expected {n_scenarios_total}, got {n_scenarios_hour}")
-            if n_bids_sale != n_bids or n_bids_buy != n_bids:
-                 raise ValueError(f"Bid dimension mismatch for hour {hour_i}. Expected {n_bids}, got Sale:{n_bids_sale}, Buy:{n_bids_buy}")
+            # Dimension checks
+            n_scen_h, n_bids_s = sale_matrix.shape; _, n_bids_b = buy_matrix.shape
+            if n_scen_h != n_scenarios_total: raise ValueError(f"Scenario dim mismatch hour {hour_i}")
+            if n_bids_s != n_bids or n_bids_b != n_bids: raise ValueError(f"Bid dim mismatch hour {hour_i}")
 
-            # Define CVXPY variables for this hour
+            # Define variables
             w_sell = cp.Variable(n_bids, nonneg=True, name=f"w_sell_h{hour_i}")
             w_buy = cp.Variable(n_bids, nonneg=True, name=f"w_buy_h{hour_i}")
-            self.sell_vars.append(w_sell)
-            self.buy_vars.append(w_buy)
+            self.sell_vars.append(w_sell); self.buy_vars.append(w_buy)
 
-            # Hourly scenario revenues (vectorized)
+            # Hourly scenario revenues expression
             scenario_revenue_hour = (sale_matrix @ w_sell) - (buy_matrix @ w_buy)
             scenario_profits.append(scenario_revenue_hour)
 
-            # Add to total volume expressions
-            total_sale_expr += cp.sum(w_sell)
-            total_buy_expr += cp.sum(w_buy)
+            # Total volume expressions
+            total_sale_expr += cp.sum(w_sell); total_buy_expr += cp.sum(w_buy)
 
-        # Check if any hours were processed
         if not self.bid_prices_per_hour:
-             raise ValueError("No hours were processed, possibly due to missing hours in data or errors generating bid prices.")
+             raise ValueError("Model building failed: No hours processed.")
 
-        # 2) Volume constraints (sum over hours <= total cap)
-        total_cap = self.max_bid_volume_per_hour * len(self.hours) # Use intended hours length
+        # 2) Volume constraints
+        total_cap = self.max_bid_volume_per_hour * len(self.hours)
         constraints.append(total_sale_expr <= total_cap)
         constraints.append(total_buy_expr <= total_cap)
 
-        # 3) Combine scenario profits across hours
-        # Ensure scenario_profits is not empty before summing
-        if not scenario_profits:
-             # This case should be caught earlier, but defensive check
-             raise ValueError("scenario_profits list is empty, cannot build model.")
-
-        total_scenario_profit = cp.sum(scenario_profits) # Sum list of CVXPY expressions
-
-        # Check shape - should be (n_scenarios_total,)
-        # CVXPY handles this implicitly, but good to keep in mind
+        # 3) Combine profits
+        if not scenario_profits: raise ValueError("scenario_profits list is empty.")
+        total_scenario_profit = cp.sum(scenario_profits) # CVXPY handles summing expressions
 
         # 4) CVaR constraint
-        t = cp.Variable(name="t_cvar")
-        z = cp.Variable(n_scenarios_total, nonneg=True, name="z_cvar")
-
         if risk_constraint:
-            # Ensure alpha is valid
-            if not 0 < self.alpha < 1:
-                 raise ValueError(f"CVaR alpha must be between 0 and 1, got {self.alpha}")
+            if not 0 < self.alpha < 1: raise ValueError(f"CVaR alpha must be between 0 and 1, got {self.alpha}")
+            t = cp.Variable(name="t_cvar")
+            z = cp.Variable(n_scenarios_total, nonneg=True, name="z_cvar")
             constraints.append(z >= t - total_scenario_profit)
-            constraints.append(t - (1.0 / ((1 - self.alpha) * n_scenarios_total)) * cp.sum(z) >= self.rho)
+            # Check division by zero if alpha is near 1 or n_scenarios_total is 0 (already checked)
+            cvar_denominator = (1 - self.alpha) * n_scenarios_total
+            if abs(cvar_denominator) < 1e-9: raise ValueError("CVaR denominator too small (alpha near 1 or zero scenarios).")
+            constraints.append(t - (1.0 / cvar_denominator) * cp.sum(z) >= self.rho)
+            
+            # Store CVaR variables for potential post-solve calculations
+            self.cvar_t = t
+            self.cvar_z = z
 
-        # 5) Objective: maximize average profit
-        if n_scenarios_total == 0:
-             raise ValueError("Cannot compute average profit with zero scenarios.")
+        # 5) Objective
         sample_average_profit = cp.sum(total_scenario_profit) / n_scenarios_total
         objective = cp.Maximize(sample_average_profit)
 
-        # 6) Create the CP problem
+        # 6) Create problem object
         self.problem = cp.Problem(objective, constraints)
-        self.objective_expr = sample_average_profit # Store expression if needed later
+        self.objective_expr = sample_average_profit
+        logger.debug("Optimization model built successfully.")
 
-    def solve_model(self, solver=cp.CLARABEL):
-        """
-        Solve the built model and store results internally.
-        (Unchanged)
-        """
+
+    # --- Internal Model Solving Logic ---
+
+    def _solve_model(self, solver=cp.CLARABEL) -> Tuple[Optional[float], str]:
+        """ Solves the CVXPY problem stored in self.problem. """
         if self.problem is None:
-            raise ValueError("Model not built. Call build_model() first.")
+            logger.error("Cannot solve model: Problem not built.")
+            return None, "error_not_built"
 
+        logger.debug(f"Solving model using {solver}...")
         start_time = time.time()
-        # Capture solver output if self.verbose is True
+        objective_value = None
+        status = "error_solver"
         try:
-            result = self.problem.solve(solver=solver, verbose=self.verbose)
+            # Use self.verbose_solver to control CVXPY output
+            objective_value = self.problem.solve(solver=solver, verbose=self.verbose_solver)
             elapsed = time.time() - start_time
-            self.objective_value = result # Can be None if solver fails
-
-            if self.verbose:
-                print(f"Solve completed in {elapsed:.2f} seconds. Status: {self.problem.status}")
-            if self.problem.status not in ["optimal", "optimal_inaccurate"]:
-                 print(f"Warning: Solver finished with status: {self.problem.status}")
+            status = self.problem.status
+            logger.debug(f"Solve completed in {elapsed:.2f}s. Status: {status}")
+            if status not in ["optimal", "optimal_inaccurate"]:
+                 logger.warning(f"Solver finished with non-optimal status: {status}")
 
         except Exception as e:
-             print(f"Error during CVXPY solve: {e}")
-             self.objective_value = None # Ensure objective is None on solver error
-             # Potentially re-raise or handle more gracefully depending on needs
-             raise # Re-raise the exception for now
+             logger.exception(f"Error during CVXPY solve: {e}")
+             # objective_value remains None
 
-        return self.objective_value # Return the objective value
+        return objective_value, status
 
+    # --- Internal Bid Postprocessing ---
 
-    def get_solution(self) -> Tuple[
-        List[NDArray[np.float64]],
-        List[NDArray[np.float64]],
-        Optional[float], # Objective can be None if solve fails
-        List[NDArray[np.float64]],
-    ]:
+    def _postprocess_bids(self) -> None:
+        """ Populates self.all_bids based on solved variable values. """
+        if self.fit_status not in ["optimal", "optimal_inaccurate"]:
+            logger.warning(f"Cannot postprocess bids: Model fit status was '{self.fit_status}'.")
+            self.all_bids = {}
+            return
+
+        if self.trained_sell_volumes is None or self.trained_buy_volumes is None:
+             logger.error("Cannot postprocess bids: Trained volumes not available.")
+             self.all_bids = {}
+             return
+
+        self.all_bids = {}
+        processed_hours = self.hours # Assumes these match the fitted hours
+
+        if len(self.trained_sell_volumes) != len(processed_hours) or \
+           len(self.trained_buy_volumes) != len(processed_hours) or \
+           len(self.bid_prices_per_hour) != len(processed_hours):
+            logger.error("Mismatch in lengths during postprocessing. Cannot generate bids.")
+            return
+
+        for i, hour_i in enumerate(processed_hours):
+            w_sell = np.round(self.trained_sell_volumes[i], 3)
+            w_buy = np.round(self.trained_buy_volumes[i], 3)
+            prices = self.bid_prices_per_hour[i]
+
+            if prices.size == 0:
+                logger.warning(f"Empty price vector for hour {hour_i} during postprocessing.")
+                self.all_bids[hour_i] = {"sell": [], "buy": []}
+                continue
+
+            hour_all_bids: Dict[str, List[Dict[str, float]]] = {"sell": [], "buy": []}
+            for price, volume in zip(prices, w_sell):
+                if volume > 1e-3: hour_all_bids["sell"].append({"price": float(price), "volume_mw": float(volume)})
+            for price, volume in zip(prices, w_buy):
+                if volume > 1e-3: hour_all_bids["buy"].append({"price": float(price), "volume_mw": float(volume)})
+
+            hour_all_bids["sell"].sort(key=lambda x: x["price"])
+            hour_all_bids["buy"].sort(key=lambda x: x["price"], reverse=True)
+            self.all_bids[hour_i] = hour_all_bids
+        logger.debug("Bids postprocessed successfully.")
+        
+    def _calculate_scenario_profits(self, market_data: MarketData) -> Optional[np.ndarray]:
+        """Helper to calculate scenario profits for a given dataset using stored trained volumes."""
+        if self.trained_sell_volumes is None or self.trained_buy_volumes is None:
+            logger.error("Cannot calculate profits: Trained volumes not available.")
+            return None
+        if len(self.trained_sell_volumes) != len(self.hours) or \
+           len(self.trained_buy_volumes) != len(self.hours) or \
+           len(self.bid_prices_per_hour) != len(self.hours):
+            logger.error("Mismatch in lengths for profit calculation.")
+            return None
+
+        scenario_profits_list = []
+        try:
+            for i, hour_i in enumerate(self.hours):
+                bid_prices = self.bid_prices_per_hour[i]
+                w_sell_trained = self.trained_sell_volumes[i]
+                w_buy_trained = self.trained_buy_volumes[i]
+
+                sale_matrix = self._calculate_spread_matrix(market_data, hour_i, is_sale=True, bid_prices=bid_prices)
+                buy_matrix = self._calculate_spread_matrix(market_data, hour_i, is_sale=False, bid_prices=bid_prices)
+
+                revenue_hour = (sale_matrix @ w_sell_trained) - (buy_matrix @ w_buy_trained)
+                scenario_profits_list.append(revenue_hour)
+
+            if not scenario_profits_list: return None
+            total_scenario_profit = np.sum(np.array(scenario_profits_list), axis=0)
+            return total_scenario_profit
+
+        except Exception as e:
+            logger.exception(f"Error calculating scenario profits: {e}")
+            return None
+
+    # --- Public Methods: Fit and Evaluate ---
+
+    def fit(self, risk_constraint: bool = True, solver=cp.CLARABEL) -> None:
         """
-        Return a list of sell decisions, buy decisions for each hour,
-        the objective value, and the list of bid prices used for each hour.
+        Builds and solves the optimization model using the training data.
+        Stores the trained volumes and objective value.
+
+        Args:
+            risk_constraint: Whether to include the CVaR constraint.
+            solver: The CVXPY solver to use.
         """
-        if self.problem is None:
-            # Check if it was built but solve failed
-            if not self.bid_prices_per_hour:
-                 raise ValueError("Model not built. Call build_model() first.")
+        logger.info("Fitting the bidding model...")
+        self.fit_cvar_value = None # Reset CVaR value
+        try:
+            # Build the optimization problem
+            self._build_model(risk_constraint=risk_constraint)
+
+            # Solve the problem
+            objective_value, status = self._solve_model(solver=solver)
+            self.fit_objective_value = objective_value
+            self.fit_status = status
+
+            # Store results if solve was successful
+            if status in ["optimal", "optimal_inaccurate"]:
+                if len(self.sell_vars) != len(self.bid_prices_per_hour) or \
+                   len(self.buy_vars) != len(self.bid_prices_per_hour):
+                    logger.error("Mismatch between CVXPY variables and stored bid prices after solve.")
+                    self.trained_sell_volumes = None
+                    self.trained_buy_volumes = None
+                else:
+                    # Extract solution values
+                    self.trained_sell_volumes = []
+                    self.trained_buy_volumes = []
+                    for i, prices in enumerate(self.bid_prices_per_hour):
+                         sell_val = self.sell_vars[i].value
+                         buy_val = self.buy_vars[i].value
+                         # Handle None values defensively, though optimal status should prevent this
+                         self.trained_sell_volumes.append(np.array(sell_val) if sell_val is not None else np.zeros_like(prices))
+                         self.trained_buy_volumes.append(np.array(buy_val) if buy_val is not None else np.zeros_like(prices))
+
+                    # Populate the self.all_bids structure
+                    self._postprocess_bids()
+                    
+                    # Calculate and store In-Sample CVaR value
+                    if risk_constraint and self.cvar_t is not None and self.cvar_z is not None:
+                        try:
+                            train_profits = self._calculate_scenario_profits(self.train_market_data)
+                            if train_profits is not None:
+                                self.fit_cvar_value = calculate_empirical_cvar(train_profits, self.alpha)
+                                logger.info(f"Model fit complete. Status: {status}, Objective: {objective_value:.4f}, CVaR({self.alpha:.2f}): {self.fit_cvar_value:.4f}")
+                            else:
+                                logger.warning("Could not calculate IS CVaR after fit (profit calc failed).")
+                                logger.info(f"Model fit complete. Status: {status}, Objective: {objective_value:.4f}")
+                        except Exception as cvar_err:
+                            logger.warning(f"Could not calculate IS CVaR after fit: {cvar_err}")
+                            logger.info(f"Model fit complete. Status: {status}, Objective: {objective_value:.4f}")
+                    else:
+                        logger.info(f"Model fit complete. Status: {status}, Objective: {objective_value:.4f}")
+
             else:
-                 print("Warning: Model built but problem/solution not available (likely solver failed). Returning empty decisions.")
-                 # Return empty arrays matching the structure but with objective None
-                 sell_decisions = [np.zeros(prices.shape) for prices in self.bid_prices_per_hour]
-                 buy_decisions = [np.zeros(prices.shape) for prices in self.bid_prices_per_hour]
-                 return sell_decisions, buy_decisions, self.objective_value, self.bid_prices_per_hour
+                # Solve failed or was non-optimal
+                self.trained_sell_volumes = None
+                self.trained_buy_volumes = None
+                self.all_bids = {} # Ensure bids are empty
+                logger.error(f"Model fit failed or non-optimal. Status: {status}. Trained volumes not stored.")
+
+        except Exception as e:
+            logger.exception("Error during model fitting process.")
+            self.fit_status = "error_fit_exception"
+            self.fit_objective_value = None
+            self.trained_sell_volumes = None
+            self.trained_buy_volumes = None
+            self.all_bids = {}
 
 
-        if self.problem.status not in ["optimal", "optimal_inaccurate"]:
-            print(f"Warning: Problem not solved optimally (Status: {self.problem.status}). Decision variables might be None.")
+    def evaluate_oos(self, test_market_data: MarketData) -> Tuple[Optional[float], Optional[float], str]:
+        """
+        Evaluates the fitted model on out-of-sample (test) data.
 
-        sell_decisions = []
-        buy_decisions = []
+        Requires that the model has been successfully fitted (`fit()` called)
+        and that the `get_bid_prices_f` used during initialization produces
+        the *exact same* price points for the test data as it did for the
+        training data (typically requiring a fixed price grid strategy).
 
-        if len(self.sell_vars) != len(self.bid_prices_per_hour) or len(self.buy_vars) != len(self.bid_prices_per_hour):
-             raise ValueError("Mismatch between number of variables and number of price lists stored.")
+        Args:
+            test_market_data: MarketData object containing the test dataset.
 
-        for i, bid_prices in enumerate(self.bid_prices_per_hour):
-            w_s = self.sell_vars[i]
-            w_b = self.buy_vars[i]
-            # Handle case where variables might be None if solver failed badly
-            sell_val = np.array(w_s.value) if w_s.value is not None else np.zeros_like(bid_prices)
-            buy_val = np.array(w_b.value) if w_b.value is not None else np.zeros_like(bid_prices)
-            sell_decisions.append(sell_val)
-            buy_decisions.append(buy_val)
+        Returns:
+            Tuple: (Average OOS Profit, OOS CVaR, Status String)
+                   Status can be 'success', 'fit_not_optimal', 'not_fitted',
+                   'data_error', 'price_mismatch', 'calculation_error'.
+        """
+        logger.info("Evaluating model out-of-sample...")
+        status = "evaluation_started"
 
-        # Return objective value (could be None)
-        obj_value = self.objective_value
+        # 1. Check if model was fitted
+        if self.trained_sell_volumes is None or self.trained_buy_volumes is None:
+            logger.error("Cannot evaluate OOS: Model has not been successfully fitted yet (call fit()).")
+            status = "not_fitted"
+            return None, None, status
+        if not self.bid_prices_per_hour:
+            logger.error("Cannot evaluate OOS: No bid prices were stored during fit.")
+            status = "not_fitted"
+            return None, None, status
+        # Check fit status again, although volumes check should cover this
+        if self.fit_status not in ["optimal", "optimal_inaccurate"]:
+            logger.warning(f"Cannot evaluate OOS: Model fit status was '{self.fit_status}'.")
+            status = "fit_not_optimal"
+            return None, None, status
 
-        return sell_decisions, buy_decisions, obj_value, self.bid_prices_per_hour
+        test_ds = test_market_data.dataset
+        n_scenarios_test = test_ds.dims.get('scenario', 0)
+        if n_scenarios_test == 0:
+            logger.error("Cannot evaluate OOS: Test data has zero scenarios.")
+            status = "data_error"
+            return None, None, status
 
-    def self_schedule_lower_bound(self):
-        """ Compute lower bound via self-scheduling (assuming MarketData provides dataset). """
-        # This method doesn't depend on get_bid_prices_f, likely OK as is.
-        # Double check variable names match dataset ('dalmp', 'rtlmp')
-        dataset = self.market_data.dataset
+        # Calculate total scenario profits on OOS data
+        total_oos_scenario_profit = self._calculate_scenario_profits(test_market_data)
+        
+        if total_oos_scenario_profit is None:
+            logger.error("Failed to calculate OOS scenario profits.")
+            status = "calculation_error"
+            return None, None, status
+
+        # --- CRITICAL CHECK for price strategy consistency ---
+        # This check is already handled in _calculate_scenario_profits,
+        # but we'll do an explicit check here for clarity
+        price_mismatch = False
+        for i, hour_i in enumerate(self.hours):
+            train_bid_prices = self.bid_prices_per_hour[i]
+            try:
+                test_hour_data = test_ds.sel(hour=hour_i)
+                test_bid_prices = np.asarray(self.get_bid_prices_f(test_hour_data))
+                if test_bid_prices.ndim == 0: test_bid_prices = test_bid_prices.reshape(1,)
+                if not np.array_equal(train_bid_prices, test_bid_prices):
+                    price_mismatch = True
+                    logger.error(f"OOS Price Mismatch Hour {hour_i}. Train: {train_bid_prices[:3]}..., Test: {test_bid_prices[:3]}...")
+                    break # Stop checking on first mismatch
+            except Exception as e:
+                logger.error(f"Error checking prices OOS hour {hour_i}: {e}")
+                price_mismatch = True
+                break # Treat error as mismatch
+        if price_mismatch:
+            logger.error("OOS evaluation failed due to price mismatch. Requires fixed price strategy.")
+            status = "price_mismatch"
+            return None, None, status
+        # --- End Price Check ---
+
+        # Calculate metrics
+        avg_oos_profit = np.mean(total_oos_scenario_profit)
+        cvar_oos = calculate_empirical_cvar(total_oos_scenario_profit, self.alpha)
+
+        if cvar_oos is None:
+            logger.warning("Could not calculate OOS CVaR.")
+            status = "cvar_calculation_error"
+        else:
+            status = "success"
+
+        logger.info(f"Out-of-sample evaluation complete. Average Profit: {avg_oos_profit:.4f}, OOS CVaR({self.alpha:.2f}): {cvar_oos if cvar_oos is not None else 'N/A'}")
+        return avg_oos_profit, cvar_oos, status
+
+
+    # --- Optional: Helper Methods (Lower/Upper Bounds) ---
+    # These remain largely independent but use self.train_market_data now
+
+    def self_schedule_lower_bound(self) -> Tuple[Optional[float], Optional[NDArray], Optional[NDArray]]:
+        """ Compute lower bound via self-scheduling on training data. """
+        logger.debug("Calculating self-schedule lower bound...")
+        dataset = self.train_market_data.dataset
         hours = self.hours
         total_bid_volume_cap = self.max_bid_volume_per_hour * len(hours)
-
         n_hours = len(hours)
         n_scenarios = dataset.dims.get('scenario', 0)
-        if n_scenarios == 0: raise ValueError("No scenarios in dataset for lower bound.")
+        if n_scenarios == 0: logger.error("No scenarios in dataset for lower bound."); return None, None, None
 
-        purchase_decisions = cp.Variable(n_hours, nonneg=True)
-        sale_decisions = cp.Variable(n_hours, nonneg=True)
-
-        # Ensure we select the correct hours
-        ds_subset = dataset.sel(hour=hours)
-        average_dalmp_by_hour = ds_subset["dalmp"].mean(dim="scenario").values
-        average_rtlmp_by_hour = ds_subset["rtlmp"].mean(dim="scenario").values
-
-        average_dart_spread_by_hour = average_dalmp_by_hour - average_rtlmp_by_hour
-
-        constraints = [
-            cp.sum(purchase_decisions) <= total_bid_volume_cap,
-            cp.sum(sale_decisions) <= total_bid_volume_cap,
-        ]
-
-        # Use matrix multiplication for clarity
-        expected_revenue_per_unit = average_dart_spread_by_hour
-        total_expected_revenue = expected_revenue_per_unit @ sale_decisions - expected_revenue_per_unit @ purchase_decisions
-
-        # Objective: Maximize average daily profit (original formula was per scenario?)
-        # The objective is maximizing total expected profit across hours. Division by n_scenarios isn't needed here.
-        objective = cp.Maximize(total_expected_revenue)
-
-        problem = cp.Problem(objective, constraints)
-        problem.solve()
-
-        if problem.status != "optimal":
-             print(f"Warning: Self-schedule lower bound solve status: {problem.status}")
-             # Return NaNs or handle appropriately
-             return np.nan, np.full(n_hours, np.nan), np.full(n_hours, np.nan)
-
-        return problem.value, purchase_decisions.value, sale_decisions.value
-
-
-    def perfect_foresight_upper_bound(self):
-        """ Compute upper bound via perfect foresight (assuming MarketData provides dataset). """
-        # This method also doesn't depend on get_bid_prices_f, likely OK.
-        dataset = self.market_data.dataset
-        hours = self.hours
-        max_bid_volume_per_hour = self.max_bid_volume_per_hour
-        total_volume_cap = max_bid_volume_per_hour * len(hours)
-
-        n_scenarios = dataset.dims.get('scenario', 0)
-        if n_scenarios == 0: raise ValueError("No scenarios in dataset for upper bound.")
-
-        obj_vals = []
-        for scenario_idx in range(n_scenarios):
-            # Select data for the specific scenario and hours
-            scenario_ds = dataset.sel(scenario=scenario_idx, hour=hours)
-            dalmps = scenario_ds["dalmp"].values
-            rtlmps = scenario_ds["rtlmp"].values
-
-            dart_spread = dalmps - rtlmps # DART spread for each hour in this scenario
-
-            sale_decisions = cp.Variable(len(hours), nonneg=True)
-            purchase_decisions = cp.Variable(len(hours), nonneg=True)
-            constraints = [
-                cp.sum(sale_decisions) <= total_volume_cap,
-                cp.sum(purchase_decisions) <= total_volume_cap,
-            ]
-
-            # Maximize profit for this specific scenario
-            revenue = dart_spread @ sale_decisions - dart_spread @ purchase_decisions
-
-            objective = cp.Maximize(revenue)
+        try:
+            purchase_decisions = cp.Variable(n_hours, nonneg=True)
+            sale_decisions = cp.Variable(n_hours, nonneg=True)
+            ds_subset = dataset.sel(hour=hours)
+            avg_dalmp = ds_subset["dalmp"].mean(dim="scenario").values
+            avg_rtlmp = ds_subset["rtlmp"].mean(dim="scenario").values
+            avg_dart = avg_dalmp - avg_rtlmp
+            constraints = [cp.sum(purchase_decisions) <= total_bid_volume_cap, cp.sum(sale_decisions) <= total_bid_volume_cap]
+            total_expected_revenue = avg_dart @ sale_decisions - avg_dart @ purchase_decisions
+            # perturb costs slightly to check for degeneracy
+            # penalized_revenue = total_expected_revenue - 0.01 * (cp.sum(sale_decisions) + cp.sum(purchase_decisions))
+            sale_penalty_coef = np.random.uniform(-0.0001, 0.0001, n_hours)
+            purchase_penalty_coef = np.random.uniform(-0.0001, 0.0001, n_hours)
+            penalized_revenue = total_expected_revenue - cp.sum(sale_penalty_coef * sale_decisions) - cp.sum(purchase_penalty_coef * purchase_decisions)
+            objective = cp.Maximize(penalized_revenue)
             problem = cp.Problem(objective, constraints)
             problem.solve()
 
             if problem.status != "optimal":
-                # Handle non-optimal solve for a scenario
-                print(f"Warning: Perfect foresight upper bound solve status for scenario {scenario_idx}: {problem.status}")
-                obj_vals.append(np.nan) # Append NaN or 0? NaN seems more appropriate
-            else:
-                 obj_vals.append(problem.value)
-
-        # Return the average over scenarios, ignoring NaNs
-        return np.nanmean(obj_vals)
+                 logger.warning(f"Self-schedule lower bound solve status: {problem.status}")
+                 return None, None, None
+            return problem.value, purchase_decisions.value, sale_decisions.value
+        except Exception as e:
+            logger.exception("Error calculating self-schedule lower bound.")
+            return None, None, None
 
 
-    def postprocess_bids(self) -> None:
-        """
-        After solve_model() is done, process the raw solution vectors into
-        bid/offer information. Uses results from get_solution().
-        """
-        # Get the solution vectors - handles None objective value
-        sell_decision_vectors, buy_decision_vectors, obj_val, bid_price_vectors = self.get_solution()
+    def perfect_foresight_upper_bound(self) -> Optional[float]:
+        """ Compute upper bound via perfect foresight on training data. """
+        logger.debug("Calculating perfect foresight upper bound...")
+        dataset = self.train_market_data.dataset
+        hours = self.hours
+        total_volume_cap = self.max_bid_volume_per_hour * len(hours)
+        n_scenarios = dataset.dims.get('scenario', 0)
+        if n_scenarios == 0: logger.error("No scenarios in dataset for upper bound."); return None
 
-        self.finalized_bids = {}
-        self.all_bids = {}
-
-        # Ensure we iterate using the correct list of hours used in the model
-        processed_hours = self.hours # Assume self.hours matches the processed hours
-
-        if len(sell_decision_vectors) != len(processed_hours) or \
-           len(buy_decision_vectors) != len(processed_hours) or \
-           len(bid_price_vectors) != len(processed_hours):
-            # This might happen if build_model skipped hours or get_solution had issues
-            print(f"Warning: Mismatch in lengths during postprocessing. Processed Hours: {len(processed_hours)}, Sell Vecs: {len(sell_decision_vectors)}, Buy Vecs: {len(buy_decision_vectors)}, Price Vecs: {len(bid_price_vectors)}")
-            # Decide how to handle: maybe only process matching indices? For now, proceed cautiously.
-            # Let's assume lengths match based on current structure.
-
-        # Iterate over each hour index corresponding to the model's processed hours
-        for i, hour_i in enumerate(processed_hours):
-            # Check if index exists in the result lists (safety for mismatch)
-            if i >= len(sell_decision_vectors): break
-
-            w_sell = np.round(sell_decision_vectors[i], 3) # Use more precision maybe?
-            w_buy = np.round(buy_decision_vectors[i], 3)
-            prices = bid_price_vectors[i]
-
-            # Ensure prices is not empty
-            if prices.size == 0:
-                print(f"Warning: Empty price vector for hour {hour_i} during postprocessing.")
-                self.all_bids[hour_i] = {"sell": [], "buy": []}
-                self.finalized_bids[hour_i] = {"sell": {"price": np.nan, "volume_mw": 0.0}, "buy": {"price": np.nan, "volume_mw": 0.0}}
-                continue
-
-            # --- Store ALL non-zero bids ---
-            hour_all_bids: Dict[str, List[Dict[str, float]]] = {"sell": [], "buy": []}
-
-            # Add all non-zero sell bids
-            for price, volume in zip(prices, w_sell):
-                if volume > 1e-3: # Use tolerance instead of exact zero
-                    hour_all_bids["sell"].append({"price": float(price), "volume_mw": float(volume)})
-
-            # Add all non-zero buy bids
-            for price, volume in zip(prices, w_buy):
-                if volume > 1e-3: # Use tolerance
-                    hour_all_bids["buy"].append({"price": float(price), "volume_mw": float(volume)})
-
-            # Sort bids by price (conventional market representation)
-            # Sell offers: lowest price first
-            # Buy bids: highest price first
-            hour_all_bids["sell"].sort(key=lambda x: x["price"])
-            hour_all_bids["buy"].sort(key=lambda x: x["price"], reverse=True)
-
-            self.all_bids[hour_i] = hour_all_bids
-
-            # --- Store largest-volume bids for backward compatibility (Optional) ---
-            # This part might be less meaningful if bids are spread across many prices
-            best_sell_price, best_sell_vol = (max(hour_all_bids["sell"], key=lambda x: x["volume_mw"]).values()
-                                              if hour_all_bids["sell"] else (np.nan, 0.0))
-            best_buy_price, best_buy_vol = (max(hour_all_bids["buy"], key=lambda x: x["volume_mw"]).values()
-                                             if hour_all_bids["buy"] else (np.nan, 0.0))
-
-            self.finalized_bids[hour_i] = {
-                "sell": {"price": float(best_sell_price), "volume_mw": float(best_sell_vol)},
-                "buy": {"price": float(best_buy_price), "volume_mw": float(best_buy_vol)},
-            }
+        obj_vals = []
+        try:
+            for scenario_idx in range(n_scenarios):
+                scenario_ds = dataset.sel(scenario=scenario_idx, hour=hours)
+                dalmps = scenario_ds["dalmp"].values; rtlmps = scenario_ds["rtlmp"].values
+                dart_spread = dalmps - rtlmps
+                sale_dec = cp.Variable(len(hours), nonneg=True); purch_dec = cp.Variable(len(hours), nonneg=True)
+                constraints = [cp.sum(sale_dec) <= total_volume_cap, cp.sum(purch_dec) <= total_volume_cap]
+                revenue = dart_spread @ sale_dec - dart_spread @ purch_dec
+                objective = cp.Maximize(revenue)
+                problem = cp.Problem(objective, constraints)
+                problem.solve()
+                if problem.status != "optimal":
+                    logger.warning(f"Perfect foresight upper bound solve status for scenario {scenario_idx}: {problem.status}")
+                    obj_vals.append(np.nan)
+                else: obj_vals.append(problem.value)
+            return np.nanmean(obj_vals) # Average results
+        except Exception as e:
+            logger.exception("Error calculating perfect foresight upper bound.")
+            return None
 
 
 # --- END OF UPDATED bidding_model.py ---
