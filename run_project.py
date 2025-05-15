@@ -94,6 +94,55 @@ def fixed_grid_prices(price_grid: List[float]) -> BidPriceFunction:
     def get_prices(hour_data: xr.Dataset) -> np.ndarray: return np_price_grid
     return get_prices
 
+def subsample_every_n(
+        stride: int = 1,
+        round_decimals: Optional[int] = None
+) -> BidPriceFunction:
+    """
+    Creates a function that returns unique DA prices from the dataset,
+    optionally rounded, and then subsampled using a stride.
+    (Assumes input data is clean: 'dalmp' exists, no NaNs).
+
+    Args:
+        stride: Take every 'stride'-th unique price after sorting.
+                stride=1 means take all unique prices. Must be > 0.
+        round_decimals: If not None, round the DA prices to this many
+                        decimal places BEFORE finding unique values.
+
+    Returns:
+        A BidPriceFunction.
+
+    Raises:
+        ValueError: If stride is invalid or if the process results in zero prices.
+    """
+    if stride <= 0:
+        raise ValueError("stride must be a positive integer.")
+    if round_decimals is not None and round_decimals < 0:
+        raise ValueError("round_decimals must be None or a non-negative integer.")
+
+    def get_prices(hour_data: xr.Dataset) -> np.ndarray:
+        # --- Streamlined Core Logic ---
+        # Directly access and process, assuming data validity
+        sampled_prices = hour_data["dalmp"].values
+
+        # 1. Optional Rounding
+        if round_decimals is not None:
+            processed_prices = np.round(sampled_prices, decimals=round_decimals)
+        else:
+            processed_prices = sampled_prices
+
+        # 2. Get Unique Sorted Prices
+        unique_prices = np.unique(processed_prices)
+        final_prices = unique_prices[::stride]  # Handles stride=1 automatically
+
+        if final_prices.size < 4:
+            logger.warning(f"Price generation resulted in only {final_prices.size} prices for hour {hour_data['hour'].item()} (stride={stride}).")
+
+        return final_prices
+
+    return get_prices  # Return the inner function
+
+
 # --- Data Structures ---
 @dataclass(frozen=True)
 class PriceStrategy:
@@ -127,10 +176,16 @@ class CaseResult:
 # --- Price Strategy Factory ---
 def create_price_strategy(
     strategy_type: str, num_points: Optional[int] = None, fixed_resolution: Optional[float] = None,
-    fixed_grid_list: Optional[List[float]] = None, min_price: float = -100.0, max_price: float = 200.0
+    fixed_grid_list: Optional[List[float]] = None, min_price: float = -100.0, max_price: float = 200.0,
+    stride: Optional[int] = None, round_decimals: Optional[int] = None
 ) -> PriceStrategy:
     """Creates a PriceStrategy object, including the is_fixed_grid flag."""
-    config = locals(); is_fixed = False
+    base_config = locals(); is_fixed = False
+    
+    # Extra parameters specific to subsample strategy
+    stride = base_config.pop("stride", None)
+    round_decimals = base_config.pop("round_decimals", None)
+    
     if strategy_type == "all_unique":
         func = use_all_unique_prices(); desc = "All Unique"
     elif strategy_type == "evenly_spaced":
@@ -141,12 +196,31 @@ def create_price_strategy(
         if fixed_resolution <= 0: raise ValueError("fixed_resolution must be positive")
         grid = list(np.arange(min_price, max_price + fixed_resolution/2.0, fixed_resolution))
         func = fixed_grid_prices(grid); desc = f"Fixed Grid Res ${fixed_resolution:.2f}"; is_fixed = True # Format resolution
-        config['generated_grid_list'] = grid
+        base_config['generated_grid_list'] = grid
     elif strategy_type == "fixed_list":
         if fixed_grid_list is None: raise ValueError("fixed_grid_list missing");
         func = fixed_grid_prices(fixed_grid_list); desc = "Fixed Grid Custom List"; is_fixed = True
+    elif strategy_type == "subsample_every_n":
+        if stride is None:
+            stride = 1  # Default stride
+        if stride <= 0: 
+            raise ValueError("stride must be positive")
+        
+        func = subsample_every_n(stride=stride, round_decimals=round_decimals)
+        desc = f"Every {stride}th Price"
+        if round_decimals is not None:
+            desc += f", rounded to {round_decimals} decimal{'s' if round_decimals != 1 else ''}"
+        
+        # Store special parameters in config
+        base_config["stride"] = stride
+        if round_decimals is not None:
+            base_config["round_decimals"] = round_decimals
+            
+        # This is NOT a fixed grid price strategy (depends on the data)
+        is_fixed = False
+        
     else: raise ValueError(f"Unknown strategy_type: {strategy_type}")
-    return PriceStrategy(function=func, description=desc, config=config, is_fixed_grid=is_fixed)
+    return PriceStrategy(function=func, description=desc, config=base_config, is_fixed_grid=is_fixed)
 
 # --- Analysis Case Generation ---
 def create_analysis_cases(
@@ -579,6 +653,8 @@ if __name__ == "__main__":
     price_group.add_argument("--fixed-grid-resolution", type=float, metavar='RES', help="Fixed grid $ resolution.")
     price_group.add_argument("--num-price-points", type=int, metavar='N', help="N evenly spaced sample-based points.")
     price_group.add_argument("--use-all-unique", action="store_true", help="Use all unique prices from samples (default if no other).")
+    price_group.add_argument("--every-nth", type=int, metavar='N', help="Use every Nth unique price from DA samples.")
+    parser.add_argument("--round-decimals", type=int, help="Round prices to N decimal places before finding unique values. Use with --every-nth.")
     parser.add_argument("--no-risk-constraint", action="store_true", help="Disable the CVaR risk constraint.")
     parser.add_argument("--analysis-scenarios", type=str, default="500,1000,2000", help="CSV list of TRAIN scenario counts for analysis.") # Clarified help
     parser.add_argument("--analysis-resolutions", type=str, default="10,5,2,1", help="CSV list of fixed grid resolutions ($) for analysis.")
@@ -597,7 +673,9 @@ if __name__ == "__main__":
         logger.info(f"Using {N_OOS_SCENARIOS} scenarios for OOS evaluation dataset.")
 
 
-    if not args.analysis and not args.fixed_grid_resolution and not args.num_price_points: args.use_all_unique = True
+    # Set default price strategy if none specified
+    if not args.analysis and not args.fixed_grid_resolution and not args.num_price_points and not args.every_nth: 
+        args.use_all_unique = True
 
     risk_constraint = not args.no_risk_constraint
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -619,10 +697,25 @@ if __name__ == "__main__":
     else:
         logger.info("Mode: Running Single Detailed Report (Fit Only)")
         try:
-            if args.fixed_grid_resolution: assert args.fixed_grid_resolution > 0; strategy = create_price_strategy(strategy_type="fixed_resolution", fixed_resolution=args.fixed_grid_resolution)
-            elif args.num_price_points: assert args.num_price_points > 0; strategy = create_price_strategy(strategy_type="evenly_spaced", num_points=args.num_price_points)
-            elif args.use_all_unique: strategy = create_price_strategy(strategy_type="all_unique")
-            else: logger.error("No price strategy specified for single run."); sys.exit(1)
+            if args.fixed_grid_resolution: 
+                assert args.fixed_grid_resolution > 0
+                strategy = create_price_strategy(strategy_type="fixed_resolution", fixed_resolution=args.fixed_grid_resolution)
+            elif args.num_price_points: 
+                assert args.num_price_points > 0
+                strategy = create_price_strategy(strategy_type="evenly_spaced", num_points=args.num_price_points)
+            elif args.every_nth:
+                assert args.every_nth > 0, "every-nth must be positive"
+                # Create strategy with subsample_every_n type directly
+                strategy = create_price_strategy(
+                    strategy_type="subsample_every_n",
+                    stride=args.every_nth,
+                    round_decimals=args.round_decimals
+                )
+            elif args.use_all_unique: 
+                strategy = create_price_strategy(strategy_type="all_unique")
+            else: 
+                logger.error("No price strategy specified for single run."); sys.exit(1)
+                
             run_optimization_and_report_results(n_scenarios=args.scenarios, price_strategy=strategy, is_risk_constraint=risk_constraint)
         except (ValueError, AssertionError) as e: logger.error(f"Invalid argument for price strategy: {e}"); sys.exit(1)
 
