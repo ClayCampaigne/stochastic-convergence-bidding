@@ -83,6 +83,22 @@ The decision variables are **sell volumes** $w^\text{sell}_j$ and **buy volumes*
 - **CVaR Risk Constraint**: Limits downside risk while maximizing expected revenue
 - **Flexible Price Discretization**: Reduces computational complexity by selecting a subset of sampled prices as candidate bid prices, rather than using all unique prices
 
+## Setup
+
+This project uses [UV](https://github.com/astral-sh/uv) for Python package management. To get started:
+
+1. Install UV if you haven't already:
+   ```bash
+   curl -LsSf https://astral.sh/uv/install.sh | sh
+   ```
+
+2. Clone the repository and install dependencies:
+   ```bash
+   git clone https://github.com/ClayCampaigne/stochastic-convergence-bidding.git
+   cd stochastic-convergence-bidding
+   uv sync
+   ```
+
 ## Usage
 
 ### Basic Optimization
