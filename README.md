@@ -15,15 +15,17 @@ The key insight is that we can **optimize both bid prices and quantities** simul
 
 1. **Scenario sample of prices**
 
-$$
-(\pi^{\mathrm{DA}}_i,\;\pi^{\mathrm{RT}}_i)_{i=1}^N, \qquad S_i \;:=\; \pi^{\mathrm{DA}}_i - \pi^{\mathrm{RT}}_i \;\; \text{(DART spread)}.
-$$
+```math
+(\pi^{\mathrm{DA}}_i,\;\pi^{\mathrm{RT}}_i)_{i=1}^{N},
+\qquad
+S_i := \pi^{\mathrm{DA}}_i-\pi^{\mathrm{RT}}_i \;(\text{DART spread})
 
-2. **Candidate bid price grid** from the sampled DA prices
+2. **Candidate bid prices***
 
-$$
-\{p_j\}_{j=1}^J, \quad \text{e.g. } \{p_j\} = \text{unique}\{\pi^{\mathrm{DA}}_i\}_{i=1}^N.
-$$
+```math
+\{p_j\}_{j=1}^{J},
+\qquad
+\{p_j\} = \operatorname{unique}\!\bigl\{\pi^{\mathrm{DA}}_i\bigr\}_{i=1}^{N}.
 
 > No strategy can be evaluated at finer price resolution than the data itself,  
 > so we let the optimization choose **volumes** $w_j$ at these **discrete prices**.
