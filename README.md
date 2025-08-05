@@ -8,8 +8,7 @@ Letif Mones, Sean Lovett) for the optimization.
 ## Features
 
 - **Synthetic Data Generation**: Uses Gaussian Mixture Models to create realistic electricity market price scenarios
-- **Multiple Bid Support**: Allows for multiple bid/offer price points at each hour
-- **Price Points Analysis**: Analyzes the tradeoff between the number of price points, solution time, and expected revenue
+- **Price Points Analysis**: Analyzes the tradeoff between the number of solution time, and expected revenue we increase the number of price breakpoints
 
 ## Usage
 
