@@ -19,13 +19,15 @@ The key insight is that we can **optimize both bid prices and quantities** simul
 (\pi^{\mathrm{DA}}_i,\;\pi^{\mathrm{RT}}_i)_{i=1}^{N},
 \qquad
 S_i := \pi^{\mathrm{DA}}_i-\pi^{\mathrm{RT}}_i \;(\text{DART spread})
+```
 
-2. **Candidate bid prices***
+2. **Candidate bid price grid** from the sampled DA prices
 
 ```math
 \{p_j\}_{j=1}^{J},
-\qquad
-\{p_j\} = \operatorname{unique}\!\bigl\{\pi^{\mathrm{DA}}_i\bigr\}_{i=1}^{N}.
+\quad \text{e.g. } 
+\{p_j\} = \text{unique}\{\pi^{\mathrm{DA}}_i\}_{i=1}^{N}.
+```
 
 > No strategy can be evaluated at finer price resolution than the data itself,  
 > so we let the optimization choose **volumes** $w_j$ at these **discrete prices**.
@@ -36,15 +38,15 @@ S_i := \pi^{\mathrm{DA}}_i-\pi^{\mathrm{RT}}_i \;(\text{DART spread})
 
 - **Sell** side clears when the bid price is **at or below** the DA price:
 
-$$
-M^{\mathrm{sell}}_{ij} \;=\; \mathbb{1}\{\pi^{\mathrm{DA}}_i \;\ge\; p_j\}.
-$$
+```math
+M^{\mathrm{sell}}_{ij} = \mathbb{1}\{\pi^{\mathrm{DA}}_i \ge p_j\}.
+```
 
 - **Buy** side clears when the bid price is **at or above** the DA price:
 
-$$
-M^{\mathrm{buy}}_{ij} \;=\; \mathbb{1}\{\pi^{\mathrm{DA}}_i \;\le\; p_j\}.
-$$
+```math
+M^{\mathrm{buy}}_{ij} = \mathbb{1}\{\pi^{\mathrm{DA}}_i \le p_j\}.
+```
 
 ---
 
@@ -52,15 +54,15 @@ $$
 
 Form the **sell payoff matrix** by scaling the indicator with the DART spread:
 
-$$
-\Delta^{\mathrm{sell}}_{ij} \;=\; S_i \, M^{\mathrm{sell}}_{ij}.
-$$
+```math
+\Delta^{\mathrm{sell}}_{ij} = S_i \, M^{\mathrm{sell}}_{ij}.
+```
 
 Given the decision variable of **sell volumes** $w \in \mathbb{R}^J_{\ge 0}$, the **scenario-wise revenues** are
 
-$$
-r^{\mathrm{sell}} \;=\; \Delta^{\mathrm{sell}}\, w^\text{sell} \;\in\; \mathbb{R}^N.
-$$
+```math
+r^{\mathrm{sell}} = \Delta^{\mathrm{sell}}\, w^\text{sell} \in \mathbb{R}^N.
+```
 
 (Analogously, for buy: $\Delta^{\mathrm{buy}}_{ij} = (-S_i)\,M^{\mathrm{buy}}_{ij}$ and $r^{\mathrm{buy}} = \Delta^{\mathrm{buy}}\,w^\text{buy}$.)
 
@@ -70,27 +72,27 @@ $$
 
 $N = 3$ scenarios and $J = 3$ candidate bid prices  
 
-$$
+```math
 \Delta^{\mathrm{sell}}
 =
 \begin{bmatrix}
-S_1\,M_{11}^{\mathrm{sell}} & S_1\,M_{12}^{\mathrm{sell}} & S_1\,M_{13}^{\mathrm{sell}} \\[4pt]
-S_2\,M_{21}^{\mathrm{sell}} & S_2\,M_{22}^{\mathrm{sell}} & S_2\,M_{23}^{\mathrm{sell}} \\[4pt]
-S_3\,M_{31}^{\mathrm{sell}} & S_3\,M_{32}^{\mathrm{sell}} & S_3\,M_{33}^{\mathrm{sell}}
+S_1 M_{11}^{\mathrm{sell}} & S_1 M_{12}^{\mathrm{sell}} & S_1 M_{13}^{\mathrm{sell}} \\
+S_2 M_{21}^{\mathrm{sell}} & S_2 M_{22}^{\mathrm{sell}} & S_2 M_{23}^{\mathrm{sell}} \\
+S_3 M_{31}^{\mathrm{sell}} & S_3 M_{32}^{\mathrm{sell}} & S_3 M_{33}^{\mathrm{sell}}
 \end{bmatrix},
 \qquad
-r^{\mathrm{sell}} \;=\; \Delta^{\mathrm{sell}}\,w^\text{sell}
-$$
+r^{\mathrm{sell}} = \Delta^{\mathrm{sell}} w^\text{sell}
+```
 
 with  
 
-$$
+```math
 M_{ij}^{\mathrm{sell}} = \mathbb{1}\{\pi^{\mathrm{DA}}_i \ge p_j\},
 \quad
 S_i = \pi^{\mathrm{DA}}_i - \pi^{\mathrm{RT}}_i,
 \quad
-w^\text{sell} = (w^\text{sell}_1,\;w^\text{sell}_2,\;w^\text{sell}_3)^{\top}.
-$$
+w^\text{sell} = (w^\text{sell}_1, w^\text{sell}_2, w^\text{sell}_3)^\top.
+```
 
 The decision variables are **sell volumes** $w^\text{sell}_j$ and **buy volumes** $w^\text{buy}_j$ at each candidate price $p_j$. The vector $r^{\mathrm{sell}}$ gives scenario-wise revenues from selling incremental volumes. This formulation naturally accommodates risk constraints like CVaR.
 
@@ -178,9 +180,9 @@ As we extend to multiple nodes, solution time will rapidly blow up, making decom
 
 Add one multiplier $\lambda \ge 0$ to the constraint:
 
-$$
+```math
 \rho - t + \frac{1}{(1-\alpha)N}\sum_i z_i \le 0
-$$
+```
 
 For fixed $\lambda$, the problem decomposes cleanly by node/hour (and even by scenario). A subgradient update on $\lambda$ enforces the global risk cap.
 
