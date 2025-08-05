@@ -2,9 +2,8 @@
 
 ## Overview
 
-In this project we implement the **Sample-PV** algorithm from §II.D of  
-*Letif Mones, Sean Lovett, “A General Stochastic Optimization Framework for Convergence Bidding”*.  
-The key insight is that we can **optimize both bid prices and quantities** simultaneously via a **linear program** by:
+In this project we implement the **Sample-PV** algorithm from §II.D of *Letif Mones, Sean Lovett, “A General Stochastic Optimization Framework for Convergence Bidding”*.  
+The key insight is that we can simultaneously **optimize both bid prices and quantities** in a fully general stochastic optimization via a **linear program** by:
 
 - Precomputing a **scenario-by-bid-price payoff matrix** of DART spread revenues; multiplying this matrix by the vector of bid volumes (at each candidate price) yields a **scenario revenue vector**.
 - Treating the decision as a pair of (typically sparse) **volume vectors** at **candidate DA prices**—one for the **sell** side and one for the **buy** side. With many scenarios, the sampled DA prices form a fine **price grid**, approximating a continuum.
