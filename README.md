@@ -14,24 +14,26 @@ The key insight is that we can **optimize both bid prices and quantities** simul
 ### Core discretization (one node, one hour of the day)
 
 1. **Scenario sample of prices**
-   $$\bigl(\pi^{\mathrm{DA}}_i,\;\pi^{\mathrm{RT}}_i\bigr)_{i=1}^N,
-   \qquad
-   S_i \;:=\; \pi^{\mathrm{DA}}_i - \pi^{\mathrm{RT}}_i \;\; \text{(DART spread)}.$$
 
-2. **Candidate bid price grid** from the sampled DA prices  
+   $$\bigl(\pi^{\mathrm{DA}}_i,\;\pi^{\mathrm{RT}}_i\bigr)_{i=1}^N, \qquad S_i \;:=\; \pi^{\mathrm{DA}}_i - \pi^{\mathrm{RT}}_i \;\; \text{(DART spread)}.$$
+
+2. **Candidate bid price grid** from the sampled DA prices
+
    $$\{p_j\}_{j=1}^J, \quad \text{e.g. } \{p_j\} = \text{unique}\bigl\{\pi^{\mathrm{DA}}_i\bigr\}_{i=1}^N.$$
 
 > No strategy can be evaluated at finer price resolution than the data itself,  
-> so we let the optimization choose **volumes** \(w_j\) at these **discrete prices**.
+> so we let the optimization choose **volumes** $w_j$ at these **discrete prices**.
 
 ---
 
 ### Moneyness (clearing) indicator
 
 - **Sell** side clears when the bid price is **at or below** the DA price:
+
   $$M^{\mathrm{sell}}_{ij} \;=\; \mathbb{1}\!\bigl\{\,\pi^{\mathrm{DA}}_i \;\ge\; p_j\,\bigr\}.$$
 
 - **Buy** side clears when the bid price is **at or above** the DA price:
+
   $$M^{\mathrm{buy}}_{ij} \;=\; \mathbb{1}\!\bigl\{\,\pi^{\mathrm{DA}}_i \;\le\; p_j\,\bigr\}.$$
 
 ---
@@ -39,9 +41,11 @@ The key insight is that we can **optimize both bid prices and quantities** simul
 ### Payoff matrices (sell-side only shown)
 
 Form the **sell payoff matrix** by scaling the indicator with the DART spread:
+
 $$\Delta^{\mathrm{sell}}_{ij} \;=\; S_i \, M^{\mathrm{sell}}_{ij}.$$
 
 Given the decision variable of **sell volumes** $w \in \mathbb{R}^J_{\ge 0}$, the **scenario-wise revenues** are
+
 $$r^{\mathrm{sell}} \;=\; \Delta^{\mathrm{sell}}\, w^\text{sell} \;\in\; \mathbb{R}^N.$$
 
 (Analogously, for buy: $\Delta^{\mathrm{buy}}_{ij} = (-S_i)\,M^{\mathrm{buy}}_{ij}$ and $r^{\mathrm{buy}} = \Delta^{\mathrm{buy}}\,w^\text{buy}$.)
@@ -159,6 +163,7 @@ As we extend to multiple nodes, solution time will rapidly blow up, making decom
 ### 1. Dualize the CVaR Constraint
 
 Add one multiplier $\lambda \ge 0$ to the constraint:
+
 $$\rho - t + \frac{1}{(1-\alpha)N}\sum_i z_i \le 0$$
 
 For fixed $\lambda$, the problem decomposes cleanly by node/hour (and even by scenario). A subgradient update on $\lambda$ enforces the global risk cap.
